@@ -6667,6 +6667,103 @@ const FfiConverterTypeHerdrControlFailure = (() => {
   return new FFIConverter();
 })();
 
+export enum HerdrIntegrationState {
+  NotInstalled,
+  Current,
+  Outdated,
+}
+
+const FfiConverterTypeHerdrIntegrationState = (() => {
+  const ordinalConverter = FfiConverterInt32;
+  type TypeName = HerdrIntegrationState;
+  class FFIConverter extends AbstractFfiConverterByteArray<TypeName> {
+    read(from: RustBuffer): TypeName {
+      switch (ordinalConverter.read(from)) {
+        case 1:
+          return HerdrIntegrationState.NotInstalled;
+        case 2:
+          return HerdrIntegrationState.Current;
+        case 3:
+          return HerdrIntegrationState.Outdated;
+        default:
+          throw new UniffiInternalError.UnexpectedEnumCase();
+      }
+    }
+    write(value: TypeName, into: RustBuffer): void {
+      switch (value) {
+        case HerdrIntegrationState.NotInstalled:
+          return ordinalConverter.write(1, into);
+        case HerdrIntegrationState.Current:
+          return ordinalConverter.write(2, into);
+        case HerdrIntegrationState.Outdated:
+          return ordinalConverter.write(3, into);
+      }
+    }
+    allocationSize(value: TypeName): number {
+      return ordinalConverter.allocationSize(0);
+    }
+  }
+  return new FFIConverter();
+})();
+
+export type HerdrIntegrationInfo = {
+  target: string;
+  label: string;
+  command: string;
+  available: boolean;
+  state: HerdrIntegrationState;
+};
+
+/**
+ * Generated factory for {@link HerdrIntegrationInfo} record objects.
+ */
+export const HerdrIntegrationInfo = (() => {
+  const defaults = () => ({});
+  const create = (() => {
+    return uniffiCreateRecord<
+      HerdrIntegrationInfo,
+      ReturnType<typeof defaults>
+    >(defaults);
+  })();
+  return Object.freeze({
+    create,
+    new: create,
+    defaults: () => Object.freeze(defaults()) as Partial<HerdrIntegrationInfo>,
+  });
+})();
+
+const FfiConverterTypeHerdrIntegrationInfo = (() => {
+  type TypeName = HerdrIntegrationInfo;
+  class FFIConverter extends AbstractFfiConverterByteArray<TypeName> {
+    read(from: RustBuffer): TypeName {
+      return {
+        target: FfiConverterString.read(from),
+        label: FfiConverterString.read(from),
+        command: FfiConverterString.read(from),
+        available: FfiConverterBool.read(from),
+        state: FfiConverterTypeHerdrIntegrationState.read(from),
+      };
+    }
+    write(value: TypeName, into: RustBuffer): void {
+      FfiConverterString.write(value.target, into);
+      FfiConverterString.write(value.label, into);
+      FfiConverterString.write(value.command, into);
+      FfiConverterBool.write(value.available, into);
+      FfiConverterTypeHerdrIntegrationState.write(value.state, into);
+    }
+    allocationSize(value: TypeName): number {
+      return (
+        FfiConverterString.allocationSize(value.target) +
+        FfiConverterString.allocationSize(value.label) +
+        FfiConverterString.allocationSize(value.command) +
+        FfiConverterBool.allocationSize(value.available) +
+        FfiConverterTypeHerdrIntegrationState.allocationSize(value.state)
+      );
+    }
+  }
+  return new FFIConverter();
+})();
+
 export enum HerdrAgentKind {
   Claude,
   Codex,
@@ -10871,6 +10968,7 @@ export enum HerdrControlRequest_Tags {
   AgentFocus = 'AgentFocus',
   AgentPrompt = 'AgentPrompt',
   IntegrationInstall = 'IntegrationInstall',
+  IntegrationList = 'IntegrationList',
 }
 export const HerdrControlRequest = (() => {
   type Ping__interface = {
@@ -11520,6 +11618,32 @@ export const HerdrControlRequest = (() => {
     }
   }
 
+  type IntegrationList__interface = {
+    tag: HerdrControlRequest_Tags.IntegrationList;
+  };
+  class IntegrationList_
+    extends UniffiEnum
+    implements IntegrationList__interface
+  {
+    /**
+     * @private
+     * This field is private and should not be used, use `tag` instead.
+     */
+    readonly [uniffiTypeNameSymbol] = 'HerdrControlRequest';
+    readonly tag = HerdrControlRequest_Tags.IntegrationList;
+    constructor() {
+      super('HerdrControlRequest', 'IntegrationList');
+    }
+
+    static new(): IntegrationList_ {
+      return new IntegrationList_();
+    }
+
+    static instanceOf(obj: any): obj is IntegrationList_ {
+      return obj.tag === HerdrControlRequest_Tags.IntegrationList;
+    }
+  }
+
   function instanceOf(obj: any): obj is HerdrControlRequest {
     return obj[uniffiTypeNameSymbol] === 'HerdrControlRequest';
   }
@@ -11549,6 +11673,7 @@ export const HerdrControlRequest = (() => {
     AgentFocus: AgentFocus_,
     AgentPrompt: AgentPrompt_,
     IntegrationInstall: IntegrationInstall_,
+    IntegrationList: IntegrationList_,
   });
 })();
 export type HerdrControlRequest = InstanceType<
@@ -11575,7 +11700,8 @@ export type HerdrControlRequest = InstanceType<
     | 'AgentStart'
     | 'AgentFocus'
     | 'AgentPrompt'
-    | 'IntegrationInstall']
+    | 'IntegrationInstall'
+    | 'IntegrationList']
 >;
 
 // FfiConverter for enum HerdrControlRequest
@@ -11688,6 +11814,8 @@ const FfiConverterTypeHerdrControlRequest = (() => {
           return new HerdrControlRequest.IntegrationInstall({
             kind: FfiConverterTypeHerdrAgentKind.read(from),
           });
+        case 24:
+          return new HerdrControlRequest.IntegrationList();
         default:
           throw new UniffiInternalError.UnexpectedEnumCase();
       }
@@ -11841,6 +11969,10 @@ const FfiConverterTypeHerdrControlRequest = (() => {
           ordinalConverter.write(23, into);
           const inner = value.inner;
           FfiConverterTypeHerdrAgentKind.write(inner.kind, into);
+          return;
+        }
+        case HerdrControlRequest_Tags.IntegrationList: {
+          ordinalConverter.write(24, into);
           return;
         }
         default:
@@ -11999,6 +12131,9 @@ const FfiConverterTypeHerdrControlRequest = (() => {
           size += FfiConverterTypeHerdrAgentKind.allocationSize(inner.kind);
           return size;
         }
+        case HerdrControlRequest_Tags.IntegrationList: {
+          return ordinalConverter.allocationSize(24);
+        }
         default:
           throw new UniffiInternalError.UnexpectedEnumCase();
       }
@@ -12021,6 +12156,7 @@ export enum HerdrControlResult_Tags {
   AgentInfo = 'AgentInfo',
   AgentPrompted = 'AgentPrompted',
   IntegrationInstalled = 'IntegrationInstalled',
+  IntegrationList = 'IntegrationList',
   PaneZoom = 'PaneZoom',
   Ok = 'Ok',
 }
@@ -12370,6 +12506,37 @@ export const HerdrControlResult = (() => {
     }
   }
 
+  type IntegrationList__interface = {
+    tag: HerdrControlResult_Tags.IntegrationList;
+    inner: Readonly<{ integrations: Array<HerdrIntegrationInfo> }>;
+  };
+  class IntegrationList_
+    extends UniffiEnum
+    implements IntegrationList__interface
+  {
+    /**
+     * @private
+     * This field is private and should not be used, use `tag` instead.
+     */
+    readonly [uniffiTypeNameSymbol] = 'HerdrControlResult';
+    readonly tag = HerdrControlResult_Tags.IntegrationList;
+    readonly inner: Readonly<{ integrations: Array<HerdrIntegrationInfo> }>;
+    constructor(inner: { integrations: Array<HerdrIntegrationInfo> }) {
+      super('HerdrControlResult', 'IntegrationList');
+
+      this.inner = Object.freeze(inner);
+    }
+    static new(inner: {
+      integrations: Array<HerdrIntegrationInfo>;
+    }): IntegrationList_ {
+      return new IntegrationList_(inner);
+    }
+
+    static instanceOf(obj: any): obj is IntegrationList_ {
+      return obj.tag === HerdrControlResult_Tags.IntegrationList;
+    }
+  }
+
   type PaneZoom__interface = {
     tag: HerdrControlResult_Tags.PaneZoom;
     inner: Readonly<{ zoom: HerdrPaneZoomResult }>;
@@ -12437,6 +12604,7 @@ export const HerdrControlResult = (() => {
     AgentInfo: AgentInfo_,
     AgentPrompted: AgentPrompted_,
     IntegrationInstalled: IntegrationInstalled_,
+    IntegrationList: IntegrationList_,
     PaneZoom: PaneZoom_,
     Ok: Ok_,
   });
@@ -12455,6 +12623,7 @@ export type HerdrControlResult = InstanceType<
     | 'AgentInfo'
     | 'AgentPrompted'
     | 'IntegrationInstalled'
+    | 'IntegrationList'
     | 'PaneZoom'
     | 'Ok']
 >;
@@ -12520,10 +12689,15 @@ const FfiConverterTypeHerdrControlResult = (() => {
             install: FfiConverterTypeHerdrIntegrationInstallResult.read(from),
           });
         case 13:
+          return new HerdrControlResult.IntegrationList({
+            integrations:
+              FfiConverterSequenceTypeHerdrIntegrationInfo.read(from),
+          });
+        case 14:
           return new HerdrControlResult.PaneZoom({
             zoom: FfiConverterTypeHerdrPaneZoomResult.read(from),
           });
-        case 14:
+        case 15:
           return new HerdrControlResult.Ok();
         default:
           throw new UniffiInternalError.UnexpectedEnumCase();
@@ -12611,14 +12785,23 @@ const FfiConverterTypeHerdrControlResult = (() => {
           );
           return;
         }
-        case HerdrControlResult_Tags.PaneZoom: {
+        case HerdrControlResult_Tags.IntegrationList: {
           ordinalConverter.write(13, into);
+          const inner = value.inner;
+          FfiConverterSequenceTypeHerdrIntegrationInfo.write(
+            inner.integrations,
+            into,
+          );
+          return;
+        }
+        case HerdrControlResult_Tags.PaneZoom: {
+          ordinalConverter.write(14, into);
           const inner = value.inner;
           FfiConverterTypeHerdrPaneZoomResult.write(inner.zoom, into);
           return;
         }
         case HerdrControlResult_Tags.Ok: {
-          ordinalConverter.write(14, into);
+          ordinalConverter.write(15, into);
           return;
         }
         default:
@@ -12715,16 +12898,24 @@ const FfiConverterTypeHerdrControlResult = (() => {
           );
           return size;
         }
-        case HerdrControlResult_Tags.PaneZoom: {
+        case HerdrControlResult_Tags.IntegrationList: {
           const inner = value.inner;
           let size = ordinalConverter.allocationSize(13);
+          size += FfiConverterSequenceTypeHerdrIntegrationInfo.allocationSize(
+            inner.integrations,
+          );
+          return size;
+        }
+        case HerdrControlResult_Tags.PaneZoom: {
+          const inner = value.inner;
+          let size = ordinalConverter.allocationSize(14);
           size += FfiConverterTypeHerdrPaneZoomResult.allocationSize(
             inner.zoom,
           );
           return size;
         }
         case HerdrControlResult_Tags.Ok: {
-          return ordinalConverter.allocationSize(14);
+          return ordinalConverter.allocationSize(15);
         }
         default:
           throw new UniffiInternalError.UnexpectedEnumCase();
@@ -21023,8 +21214,8 @@ export class HostRuntime
         ),
         /*liftString:*/ FfiConverterString.lift.bind(FfiConverterString),
         /*asyncOpts:*/ asyncOpts_,
-        /*errorHandler:*/ FfiConverterTypeHostRuntimeError.lift.bind(
-          FfiConverterTypeHostRuntimeError,
+        /*errorHandler:*/ FfiConverterTypeHerdrControlError.lift.bind(
+          FfiConverterTypeHerdrControlError,
         ),
       );
     } catch (__error: any) {
@@ -25721,6 +25912,11 @@ const FfiConverterSequenceTypeRemoteFileEntry = new FfiConverterArray(
 // FfiConverter for Array<bigint>
 const FfiConverterSequenceUInt64 = new FfiConverterArray(FfiConverterUInt64);
 
+// FfiConverter for Array<HerdrIntegrationInfo>
+const FfiConverterSequenceTypeHerdrIntegrationInfo = new FfiConverterArray(
+  FfiConverterTypeHerdrIntegrationInfo,
+);
+
 // FfiConverter for HerdrWorkspaceInfo | undefined
 const FfiConverterOptionalTypeHerdrWorkspaceInfo = new FfiConverterOptional(
   FfiConverterTypeHerdrWorkspaceInfo,
@@ -26656,7 +26852,7 @@ function uniffiEnsureInitialized() {
   }
   if (
     nativeModule().ubrn_uniffi_whip_ssh_checksum_method_hostruntime_agent_integration_status() !==
-    28637
+    39271
   ) {
     throw new UniffiInternalError.ApiChecksumMismatch(
       'uniffi_whip_ssh_checksum_method_hostruntime_agent_integration_status',
@@ -27319,7 +27515,9 @@ export default Object.freeze({
     FfiConverterTypeHerdrEvent,
     FfiConverterTypeHerdrEventError,
     FfiConverterTypeHerdrEventSink,
+    FfiConverterTypeHerdrIntegrationInfo,
     FfiConverterTypeHerdrIntegrationInstallResult,
+    FfiConverterTypeHerdrIntegrationState,
     FfiConverterTypeHerdrPaneInfo,
     FfiConverterTypeHerdrPaneLayoutPane,
     FfiConverterTypeHerdrPaneLayoutRect,

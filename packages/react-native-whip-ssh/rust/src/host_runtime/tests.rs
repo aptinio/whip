@@ -9,9 +9,9 @@ use crate::agent_sessions::{
 };
 use crate::herdr_api::{
     HerdrAgentKind, HerdrAgentSessionInfo, HerdrAgentSessionKind, HerdrAgentStatus,
-    HerdrControlError, HerdrControlRequest, HerdrControlResult, HerdrPaneInfo,
-    HerdrSessionSnapshot, HerdrTabInfo, HerdrTabLaunch, HerdrTabLaunchResult, HerdrTabLaunchStage,
-    HerdrWorkspaceInfo,
+    HerdrControlError, HerdrControlRequest, HerdrControlResult, HerdrIntegrationInfo,
+    HerdrIntegrationInstallResult, HerdrIntegrationState, HerdrPaneInfo, HerdrSessionSnapshot,
+    HerdrTabInfo, HerdrTabLaunch, HerdrTabLaunchResult, HerdrTabLaunchStage, HerdrWorkspaceInfo,
 };
 use crate::herdr_codec::{MAX_PROTOCOL, MIN_PROTOCOL};
 use crate::herdr_connection::HerdrRequestReplay;
@@ -188,29 +188,153 @@ fn managed_agent_names_are_native_owned_and_stable() {
     );
 }
 
+fn integration_info(target: HerdrAgentKind, state: HerdrIntegrationState) -> HerdrIntegrationInfo {
+    HerdrIntegrationInfo {
+        target: target.as_str().to_owned(),
+        label: target.as_str().to_owned(),
+        command: target.as_str().to_owned(),
+        available: true,
+        state,
+    }
+}
+
 #[test]
-fn integration_status_command_and_parser_are_native_owned() {
-    let command = integration_status_command("/opt/herdr current/herdr");
-    assert!(command.contains("integration status"));
-    assert!(command.contains("/opt/herdr current/herdr"));
-    assert_eq!(
-        parse_agent_integration_status(
-            "claude: not installed\ncodex: current (v2)\n",
-            HerdrAgentKind::Codex,
-        ),
-        AgentIntegrationStatus::Current
-    );
-    assert_eq!(
-        parse_agent_integration_status(
-            "opencode: needs repair (/tmp/config)\n",
-            HerdrAgentKind::OpenCode,
-        ),
-        AgentIntegrationStatus::NeedsRepair
-    );
-    assert_eq!(
-        parse_agent_integration_status("older output", HerdrAgentKind::Codex),
-        AgentIntegrationStatus::Unknown
-    );
+fn integration_status_uses_socket_list_states_for_all_agents() {
+    crate::runtime().unwrap().block_on(async {
+        for (state, expected) in [
+            (
+                HerdrIntegrationState::Current,
+                AgentIntegrationStatus::Current,
+            ),
+            (
+                HerdrIntegrationState::NotInstalled,
+                AgentIntegrationStatus::NotInstalled,
+            ),
+            (
+                HerdrIntegrationState::Outdated,
+                AgentIntegrationStatus::Outdated,
+            ),
+        ] {
+            for kind in [HerdrAgentKind::Codex, HerdrAgentKind::OpenCode] {
+                let status = integration_status_with_request(kind, |request| async move {
+                    assert_eq!(request, HerdrControlRequest::IntegrationList);
+                    Ok(HerdrControlResult::IntegrationList {
+                        integrations: vec![integration_info(kind, state)],
+                    })
+                })
+                .await
+                .unwrap();
+                assert_eq!(status, expected);
+            }
+        }
+
+        let missing =
+            integration_status_with_request(HerdrAgentKind::Codex, |request| async move {
+                assert_eq!(request, HerdrControlRequest::IntegrationList);
+                Ok(HerdrControlResult::IntegrationList {
+                    integrations: vec![integration_info(
+                        HerdrAgentKind::OpenCode,
+                        HerdrIntegrationState::Current,
+                    )],
+                })
+            })
+            .await
+            .unwrap();
+        assert_eq!(missing, AgentIntegrationStatus::Unknown);
+
+        let error = integration_status_with_request(HerdrAgentKind::Codex, |_| async {
+            Ok(HerdrControlResult::Ok)
+        })
+        .await
+        .unwrap_err();
+        assert!(matches!(error, HerdrControlError::UnsupportedResponse(_)));
+    });
+}
+
+#[test]
+fn integration_status_and_install_share_the_control_request_path() {
+    crate::runtime().unwrap().block_on(async {
+        let server_state = Arc::new(Mutex::new(HerdrIntegrationState::Outdated));
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let control_request = |request: HerdrControlRequest| {
+            let server_state = server_state.clone();
+            let requests = requests.clone();
+            async move {
+                requests.lock().push(request.clone());
+                match request {
+                    HerdrControlRequest::IntegrationList => {
+                        Ok(HerdrControlResult::IntegrationList {
+                            integrations: vec![integration_info(
+                                HerdrAgentKind::Codex,
+                                *server_state.lock(),
+                            )],
+                        })
+                    }
+                    HerdrControlRequest::IntegrationInstall { kind } => {
+                        *server_state.lock() = HerdrIntegrationState::Current;
+                        Ok(HerdrControlResult::IntegrationInstalled {
+                            install: HerdrIntegrationInstallResult {
+                                kind,
+                                messages: vec!["installed".to_owned()],
+                            },
+                        })
+                    }
+                    _ => panic!("integration flow requested a non-control operation"),
+                }
+            }
+        };
+
+        assert_eq!(
+            integration_status_with_request(HerdrAgentKind::Codex, control_request)
+                .await
+                .unwrap(),
+            AgentIntegrationStatus::Outdated
+        );
+        install_integration_with_request(HerdrAgentKind::Codex, control_request)
+            .await
+            .unwrap();
+        assert_eq!(
+            integration_status_with_request(HerdrAgentKind::Codex, control_request)
+                .await
+                .unwrap(),
+            AgentIntegrationStatus::Current
+        );
+        assert_eq!(
+            *requests.lock(),
+            [
+                HerdrControlRequest::IntegrationList,
+                HerdrControlRequest::IntegrationInstall {
+                    kind: HerdrAgentKind::Codex,
+                },
+                HerdrControlRequest::IntegrationList,
+            ]
+        );
+    });
+}
+
+#[test]
+fn disconnected_integration_methods_return_control_transport_errors() {
+    crate::runtime().unwrap().block_on(async {
+        let runtime_config = config();
+        let inner = runtime_inner_with_state(
+            "integration-disconnected",
+            runtime_config.clone(),
+            RuntimeState::new(&runtime_config),
+        );
+        let runtime = HostRuntime { inner };
+        assert!(matches!(
+            runtime
+                .agent_integration_status(HerdrAgentKind::Codex)
+                .await,
+            Err(HerdrControlError::TransportDisconnected(_))
+        ));
+        assert!(matches!(
+            runtime
+                .install_agent_integration(HerdrAgentKind::Codex)
+                .await,
+            Err(HerdrControlError::TransportDisconnected(_))
+        ));
+    });
 }
 
 #[test]
@@ -2551,6 +2675,12 @@ fn all_focus_requests_are_replayable_but_mutations_are_not() {
         text: "hello".to_owned()
     }));
     assert!(safe_control_replay(&HerdrControlRequest::SessionSnapshot));
+    assert!(safe_control_replay(&HerdrControlRequest::IntegrationList));
+    assert!(!safe_control_replay(
+        &HerdrControlRequest::IntegrationInstall {
+            kind: HerdrAgentKind::Codex,
+        }
+    ));
     assert!(safe_control_replay(&HerdrControlRequest::PaneRead {
         pane_id: "p".to_owned(),
         lines: 10

@@ -1399,6 +1399,7 @@ fn apply_control_to_snapshot(
         HerdrControlResult::Pong { .. }
         | HerdrControlResult::SessionSnapshot { .. }
         | HerdrControlResult::IntegrationInstalled { .. }
+        | HerdrControlResult::IntegrationList { .. }
         | HerdrControlResult::PaneRead { .. } => Ok(ControlProjection::Unchanged),
     }
 }

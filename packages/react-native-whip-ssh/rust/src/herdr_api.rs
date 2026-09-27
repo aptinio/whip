@@ -72,6 +72,23 @@ pub struct HerdrIntegrationInstallResult {
     pub messages: Vec<String>,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, uniffi::Enum)]
+#[serde(rename_all = "snake_case")]
+pub enum HerdrIntegrationState {
+    NotInstalled,
+    Current,
+    Outdated,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, uniffi::Record)]
+pub struct HerdrIntegrationInfo {
+    pub target: String,
+    pub label: String,
+    pub command: String,
+    pub available: bool,
+    pub state: HerdrIntegrationState,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, uniffi::Enum)]
 pub enum HerdrControlFailureKind {
     TransportDisconnected,
@@ -365,6 +382,9 @@ pub enum HerdrControlResult {
     IntegrationInstalled {
         install: HerdrIntegrationInstallResult,
     },
+    IntegrationList {
+        integrations: Vec<HerdrIntegrationInfo>,
+    },
     PaneZoom {
         zoom: HerdrPaneZoomResult,
     },
@@ -453,6 +473,7 @@ pub enum HerdrControlRequest {
     IntegrationInstall {
         kind: HerdrAgentKind,
     },
+    IntegrationList,
 }
 
 #[derive(Clone, Debug, thiserror::Error, uniffi::Error, PartialEq, Eq)]
@@ -641,6 +662,7 @@ impl HerdrControlRequest {
             Self::AgentFocus { .. } => "agent.focus",
             Self::AgentPrompt { .. } => "agent.prompt",
             Self::IntegrationInstall { .. } => "integration.install",
+            Self::IntegrationList => "integration.list",
         }
     }
 
@@ -656,7 +678,7 @@ impl HerdrControlRequest {
         }
         let method = self.method();
         match self {
-            Self::Ping | Self::SessionSnapshot => line(WireRequest {
+            Self::Ping | Self::SessionSnapshot | Self::IntegrationList => line(WireRequest {
                 id,
                 method,
                 params: EmptyParams {},
@@ -832,6 +854,7 @@ impl HerdrControlRequest {
             Self::AgentFocus { .. } => HerdrControlResultKind::AgentInfo,
             Self::AgentPrompt { .. } => HerdrControlResultKind::AgentPrompted,
             Self::IntegrationInstall { .. } => HerdrControlResultKind::IntegrationInstall,
+            Self::IntegrationList => HerdrControlResultKind::IntegrationList,
         }
     }
 }
@@ -851,6 +874,7 @@ enum HerdrControlResultKind {
     AgentInfo,
     AgentPrompted,
     IntegrationInstall,
+    IntegrationList,
     PaneZoom,
     Ok,
 }
@@ -870,6 +894,7 @@ impl HerdrControlResultKind {
             Self::AgentInfo => "agent_info",
             Self::AgentPrompted => "agent_prompted",
             Self::IntegrationInstall => "integration_install",
+            Self::IntegrationList => "integration_list",
             Self::PaneZoom => "pane_zoom",
             Self::Ok => "ok",
         }
@@ -1089,6 +1114,32 @@ fn decode_result(
                     )?,
                 },
             })
+        }
+        HerdrControlResultKind::IntegrationList => {
+            let integrations = required(result, "integrations", "result.integrations")?
+                .as_array()
+                .ok_or_else(|| "result.integrations must be an array".to_owned())?
+                .iter()
+                .enumerate()
+                .map(|(index, value)| {
+                    let path = format!("result.integrations[{index}]");
+                    let entry = object(value, &path)?;
+                    Ok(HerdrIntegrationInfo {
+                        target: required_string(entry, "target", &format!("{path}.target"))?,
+                        label: required_string(entry, "label", &format!("{path}.label"))?,
+                        command: required_string(entry, "command", &format!("{path}.command"))?,
+                        available: bool_value(
+                            required(entry, "available", &format!("{path}.available"))?,
+                            &format!("{path}.available"),
+                        )?,
+                        state: enum_value(
+                            required(entry, "state", &format!("{path}.state"))?,
+                            &format!("{path}.state"),
+                        )?,
+                    })
+                })
+                .collect::<Result<Vec<_>, String>>()?;
+            Ok(HerdrControlResult::IntegrationList { integrations })
         }
         HerdrControlResultKind::PaneZoom => Ok(HerdrControlResult::PaneZoom {
             zoom: pane_zoom(required(result, "zoom", "result.zoom")?)?,
@@ -1996,6 +2047,45 @@ mod tests {
     }
 
     #[test]
+    fn integration_list_uses_the_socket_schema_and_rejects_wrong_result_types() {
+        let request = HerdrControlRequest::IntegrationList;
+        assert_eq!(
+            String::from_utf8(request.encode("android_8").unwrap()).unwrap(),
+            "{\"id\":\"android_8\",\"method\":\"integration.list\",\"params\":{}}\n"
+        );
+        let response = parse_response(
+            &request,
+            br#"{"id":"android_8","result":{"type":"integration_list","integrations":[{"target":"codex","label":"Codex","command":"codex","available":true,"state":"current"},{"target":"opencode","label":"OpenCode","command":"opencode","available":true,"state":"outdated"}]}}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            response,
+            HerdrControlResult::IntegrationList {
+                integrations: vec![
+                    HerdrIntegrationInfo {
+                        target: "codex".to_owned(),
+                        label: "Codex".to_owned(),
+                        command: "codex".to_owned(),
+                        available: true,
+                        state: HerdrIntegrationState::Current,
+                    },
+                    HerdrIntegrationInfo {
+                        target: "opencode".to_owned(),
+                        label: "OpenCode".to_owned(),
+                        command: "opencode".to_owned(),
+                        available: true,
+                        state: HerdrIntegrationState::Outdated,
+                    },
+                ],
+            }
+        );
+        assert!(matches!(
+            parse_response(&request, br#"{"id":"android_8","result":{"type":"ok"}}"#,),
+            Err(HerdrControlError::UnsupportedResponse(_))
+        ));
+    }
+
+    #[test]
     fn successful_and_error_responses_are_typed() {
         let pong = parse_response(
             &HerdrControlRequest::Ping,
@@ -2114,6 +2204,13 @@ mod tests {
                     "details":{"messages":["installed"]}
                 }),
             ),
+            (
+                HerdrControlResultKind::IntegrationList,
+                serde_json::json!({"integrations":[{
+                    "target":"codex","label":"Codex","command":"codex",
+                    "available":true,"state":"not_installed"
+                }]}),
+            ),
             (HerdrControlResultKind::Ok, serde_json::json!({})),
         ];
         for (kind, value) in cases {
@@ -2136,6 +2233,9 @@ mod tests {
                 HerdrControlResult::AgentPrompted { .. } => HerdrControlResultKind::AgentPrompted,
                 HerdrControlResult::IntegrationInstalled { .. } => {
                     HerdrControlResultKind::IntegrationInstall
+                }
+                HerdrControlResult::IntegrationList { .. } => {
+                    HerdrControlResultKind::IntegrationList
                 }
                 HerdrControlResult::PaneZoom { .. } => HerdrControlResultKind::PaneZoom,
                 HerdrControlResult::Ok => HerdrControlResultKind::Ok,

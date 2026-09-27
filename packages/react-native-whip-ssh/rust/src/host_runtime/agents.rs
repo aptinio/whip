@@ -10,9 +10,9 @@ use crate::agent_sessions::{
 use crate::agent_transcript::AgentTranscriptState;
 use crate::herdr_api::{
     HerdrAgentKind, HerdrControlError, HerdrControlRequest, HerdrControlResult,
-    HerdrIntegrationInstallResult, HerdrTabLaunch, HerdrTabLaunchResult, HerdrTabLaunchStage,
+    HerdrIntegrationInstallResult, HerdrIntegrationState, HerdrTabLaunch, HerdrTabLaunchResult,
+    HerdrTabLaunchStage,
 };
-use crate::remote_ops::shell_quote;
 
 const AGENT_SHELL_READINESS_TIMEOUT: Duration = Duration::from_secs(2);
 const AGENT_SHELL_READINESS_INTERVAL: Duration = Duration::from_millis(100);
@@ -46,50 +46,51 @@ pub(super) fn managed_agent_name(label: &str, kind: HerdrAgentKind, tab_number: 
     normalized
 }
 
-pub(super) fn integration_status_command(herdr_command: &str) -> String {
-    let herdr_command = herdr_command.trim();
-    let herdr_command = if herdr_command.is_empty() {
-        "herdr"
-    } else {
-        herdr_command
-    };
-    let command = format!("{} integration status", shell_quote(herdr_command));
-    let bootstrap = r#"exec "${SHELL:-/bin/sh}" -lc "$1""#;
-    format!(
-        "exec /bin/sh -c {} whip {}",
-        shell_quote(bootstrap),
-        shell_quote(&command)
-    )
+pub(super) async fn integration_status_with_request<F, Fut>(
+    kind: HerdrAgentKind,
+    request: F,
+) -> Result<AgentIntegrationStatus, HerdrControlError>
+where
+    F: FnOnce(HerdrControlRequest) -> Fut,
+    Fut: Future<Output = Result<HerdrControlResult, HerdrControlError>>,
+{
+    match request(HerdrControlRequest::IntegrationList).await? {
+        HerdrControlResult::IntegrationList { integrations } => Ok(integrations
+            .iter()
+            .find(|integration| integration.target == kind.as_str())
+            .map_or(
+                AgentIntegrationStatus::Unknown,
+                |integration| match integration.state {
+                    HerdrIntegrationState::NotInstalled => AgentIntegrationStatus::NotInstalled,
+                    HerdrIntegrationState::Current => AgentIntegrationStatus::Current,
+                    HerdrIntegrationState::Outdated => AgentIntegrationStatus::Outdated,
+                },
+            )),
+        _ => Err(HerdrControlError::UnsupportedResponse(
+            "integration.list returned a non-integration result".to_owned(),
+        )),
+    }
 }
 
-pub(super) fn parse_agent_integration_status(
-    output: &str,
+pub(super) async fn install_integration_with_request<F, Fut>(
     kind: HerdrAgentKind,
-) -> AgentIntegrationStatus {
-    let prefix = format!("{}:", kind.as_str());
-    let Some(status) = output.lines().find_map(|line| {
-        let line = line.trim().to_lowercase();
-        line.strip_prefix(&prefix).map(str::trim).map(str::to_owned)
-    }) else {
-        return AgentIntegrationStatus::Unknown;
-    };
-    let matches = |expected: &str| {
-        status == expected
-            || status
-                .strip_prefix(expected)
-                .and_then(|suffix| suffix.chars().next())
-                .is_some_and(|character| character.is_whitespace() || character == '(')
-    };
-    if matches("not installed") {
-        AgentIntegrationStatus::NotInstalled
-    } else if matches("current") {
-        AgentIntegrationStatus::Current
-    } else if matches("outdated") {
-        AgentIntegrationStatus::Outdated
-    } else if matches("needs repair") {
-        AgentIntegrationStatus::NeedsRepair
-    } else {
-        AgentIntegrationStatus::Unknown
+    request: F,
+) -> Result<HerdrIntegrationInstallResult, HerdrControlError>
+where
+    F: FnOnce(HerdrControlRequest) -> Fut,
+    Fut: Future<Output = Result<HerdrControlResult, HerdrControlError>>,
+{
+    match request(HerdrControlRequest::IntegrationInstall { kind }).await? {
+        HerdrControlResult::IntegrationInstalled { install } if install.kind == kind => Ok(install),
+        HerdrControlResult::IntegrationInstalled { install } => {
+            Err(HerdrControlError::UnsupportedResponse(format!(
+                "integration.install returned {:?} for requested {:?}",
+                install.kind, kind
+            )))
+        }
+        _ => Err(HerdrControlError::UnsupportedResponse(
+            "integration.install returned a non-integration result".to_owned(),
+        )),
     }
 }
 
@@ -464,32 +465,14 @@ impl HostRuntime {
     pub async fn agent_integration_status(
         &self,
         kind: HerdrAgentKind,
-    ) -> Result<AgentIntegrationStatus, HostRuntimeError> {
-        let command = integration_status_command(&self.inner.config.herdr_command);
-        let output = self.execute(command).await?;
-        Ok(parse_agent_integration_status(&output, kind))
+    ) -> Result<AgentIntegrationStatus, HerdrControlError> {
+        integration_status_with_request(kind, |request| self.control_request(request)).await
     }
 
     pub async fn install_agent_integration(
         &self,
         kind: HerdrAgentKind,
     ) -> Result<HerdrIntegrationInstallResult, HerdrControlError> {
-        match self
-            .control_request(HerdrControlRequest::IntegrationInstall { kind })
-            .await?
-        {
-            HerdrControlResult::IntegrationInstalled { install } if install.kind == kind => {
-                Ok(install)
-            }
-            HerdrControlResult::IntegrationInstalled { install } => {
-                Err(HerdrControlError::UnsupportedResponse(format!(
-                    "integration.install returned {:?} for requested {:?}",
-                    install.kind, kind
-                )))
-            }
-            _ => Err(HerdrControlError::UnsupportedResponse(
-                "integration.install returned a non-integration result".to_owned(),
-            )),
-        }
+        install_integration_with_request(kind, |request| self.control_request(request)).await
     }
 }

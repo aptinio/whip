@@ -20,6 +20,7 @@ import {
   HerdrAgentSessionKind,
   HerdrAgentKind,
   HerdrAgentStatus,
+  HerdrIntegrationState,
   HerdrSplitDirection,
   HerdrTabLaunch,
   HerdrTabLaunchResult_Tags,
@@ -760,7 +761,10 @@ export type WhipHostSnapshot = {
 };
 
 export type RuntimeHerdrRequest =
-  | { method: 'ping' | 'session.snapshot'; params: Record<string, never> }
+  | {
+      method: 'ping' | 'session.snapshot' | 'integration.list';
+      params: Record<string, never>;
+    }
   | {
       method: 'workspace.create';
       params: { label: string | null; cwd: string | null; focus?: boolean };
@@ -838,6 +842,16 @@ export type RuntimeHerdrResult =
       type: 'integration_install';
       target: RuntimeAgentKind;
       details: { messages: string[] };
+    }
+  | {
+      type: 'integration_list';
+      integrations: {
+        target: string;
+        label: string;
+        command: string;
+        available: boolean;
+        state: 'not_installed' | 'current' | 'outdated';
+      }[];
     }
   | { type: 'pane_zoom' }
   | { type: 'ok' };
@@ -1671,6 +1685,8 @@ function controlRequest(request: RuntimeHerdrRequest): HerdrControlRequest {
       return HerdrControlRequest.Ping.new();
     case 'session.snapshot':
       return HerdrControlRequest.SessionSnapshot.new();
+    case 'integration.list':
+      return HerdrControlRequest.IntegrationList.new();
     case 'workspace.create':
       return HerdrControlRequest.WorkspaceCreate.new({
         label: optionalString(params.label),
@@ -2304,6 +2320,22 @@ function apiResult(value: HerdrControlResult): RuntimeHerdrResult {
             ? 'codex'
             : 'opencode',
         details: { messages: [...value.inner.install.messages] },
+      };
+    case HerdrControlResult_Tags.IntegrationList:
+      return {
+        type: 'integration_list',
+        integrations: value.inner.integrations.map(integration => ({
+          target: integration.target,
+          label: integration.label,
+          command: integration.command,
+          available: integration.available,
+          state:
+            integration.state === HerdrIntegrationState.NotInstalled
+              ? 'not_installed'
+              : integration.state === HerdrIntegrationState.Current
+                ? 'current'
+                : 'outdated',
+        })),
       };
     case HerdrControlResult_Tags.PaneZoom:
       return { type: 'pane_zoom' };
