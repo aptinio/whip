@@ -30,6 +30,7 @@ const {
   terminalBoundaryFiniteNumber,
   terminalBoundaryScroll,
   terminalBoundaryScrollToVisualBottom,
+  terminalUnconsumedScrollRows,
   terminalBoundaryVisualOffset,
 } = terminalBoundaryScrollModel;
 const {
@@ -290,6 +291,7 @@ const terminalSessionHtml = `<!doctype html>
     ${terminalBoundaryScrollToVisualBottom.toString()}
     ${reconcileTerminalBoundaryScroll.toString()}
     ${terminalBoundaryScroll.toString()}
+    ${terminalUnconsumedScrollRows.toString()}
     const terminalFontFamily = '${androidTerminalFontFamily}';
     const fontReady = document.fonts?.load
       ? Promise.all([
@@ -364,6 +366,7 @@ const terminalSessionHtml = `<!doctype html>
     let remoteVisualInputOffset;
     let remoteVisualInputMaximum;
     let remoteVisualPendingDelta = 0;
+    let remoteGestureRemainderPx = 0;
     let terminalBoundaryScrollState = {
       offsetFromBottom: 0,
       maxOffsetFromBottom: 0,
@@ -884,10 +887,11 @@ const terminalSessionHtml = `<!doctype html>
         ),
         alternateScreen: false,
       });
+      const cellHeightPx = terminalCellHeight();
       const result = terminalBoundaryScroll({
         state: terminalBoundaryScrollState,
         gestureDeltaPx,
-        cellHeightPx: terminalCellHeight(),
+        cellHeightPx,
         topAllowancePx: finiteInset(terminalVisualInsets.top),
         bottomAllowancePx: Math.max(
           0,
@@ -912,6 +916,21 @@ const terminalSessionHtml = `<!doctype html>
             column: cell?.col,
             row: cell?.row,
           });
+        }
+      }
+      if (!offlineScrollback && !localScrollback) {
+        const remote = terminalUnconsumedScrollRows({
+          unconsumedGesturePx: result.unconsumedGesturePx,
+          remainderPx: rowDelta === 0 ? remoteGestureRemainderPx : 0,
+          cellHeightPx,
+        });
+        remoteGestureRemainderPx = remote.remainderPx;
+        if (remote.rows !== 0) {
+          const cell = terminalMouseCell(point);
+          const direction = remote.rows > 0 ? 'up' : 'down';
+          for (let index = 0; index < Math.abs(remote.rows); index += 1) {
+            send({ type: 'scroll', direction, lines: 1, column: cell?.col, row: cell?.row });
+          }
         }
       }
       applyTerminalVisualInsets();
@@ -1326,6 +1345,7 @@ const terminalSessionHtml = `<!doctype html>
         ...terminalBoundaryScrollState,
         rowRemainderPx: 0,
       };
+      remoteGestureRemainderPx = 0;
       touch = { x: point.clientX, y: point.clientY, lastY: point.clientY, moved: false, longPressed: false, selection: null };
       longPressTimer = setTimeout(() => {
         if (!touch || touch.moved) return;
