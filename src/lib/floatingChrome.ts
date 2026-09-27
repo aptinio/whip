@@ -14,6 +14,7 @@ export const TERMINAL_CONTROL_BAR_BASE_HEIGHT = 50;
 export const SESSION_TAB_BAR_HEIGHT = 55;
 export const SESSION_PANE_BAR_HEIGHT = 44;
 export const TERMINAL_FLOATING_ACTION_GAP = 12;
+export const TERMINAL_CURSOR_CLEARANCE = 8;
 
 export function terminalSessionChromeHeight(paneCount: number): number {
   return SESSION_TAB_BAR_HEIGHT + (paneCount > 1 ? SESSION_PANE_BAR_HEIGHT : 0);
@@ -139,20 +140,33 @@ export function terminalViewportLayout({
   composerHeight,
   composerVisible,
   controlBarHeight,
+  cursorBottom,
   keyboardInset,
   topInset,
+  viewportHeight,
 }: {
   composerExpanded: boolean;
   composerHeight: number;
   composerVisible: boolean;
   controlBarHeight: number;
+  cursorBottom?: number | null;
   keyboardInset: number;
   topInset: number;
+  viewportHeight?: number;
 }): TerminalViewportLayout {
   const floatingKeyboardInset = Math.max(0, keyboardInset);
-  const terminalTranslateY = !composerVisible && floatingKeyboardInset > 0
-    ? -floatingKeyboardInset
+  const occludedBottom = floatingKeyboardInset + Math.max(0, controlBarHeight);
+  const cursorShift = !composerVisible
+    && floatingKeyboardInset > 0
+    && typeof cursorBottom === 'number' && Number.isFinite(cursorBottom)
+    && typeof viewportHeight === 'number' && viewportHeight > 0
+    && Number.isFinite(viewportHeight)
+    ? Math.min(occludedBottom, Math.max(0,
+      cursorBottom + TERMINAL_CURSOR_CLEARANCE
+        - (viewportHeight - occludedBottom),
+    ))
     : 0;
+  const terminalTranslateY = cursorShift > 0 ? -cursorShift : 0;
   const terminalBottom = terminalBottomChromeInset({
     composerHeight,
     composerVisible: false,

@@ -394,6 +394,39 @@ const terminalSessionHtml = `<!doctype html>
       send({ type: 'offline-scroll', ...scroll });
     };
     const finiteInset = value => Math.max(0, Number.isFinite(Number(value)) ? Number(value) : 0);
+    let cursorGeometryFrame = 0;
+    let lastCursorGeometry = '';
+    const reportCursorGeometry = () => {
+      cursorGeometryFrame = 0;
+      const screen = terminal.element?.querySelector('.xterm-screen');
+      const root = terminal.element?.closest('.terminal-session') || document.body;
+      const cellHeight = terminal.dimensions?.css.cell.height;
+      if (!screen || !cellHeight || !terminal.rows) return;
+      const buffer = terminal.buffer.active;
+      const cursorRow = buffer.baseY + buffer.cursorY - buffer.viewportY;
+      // Both rectangles are inside the WebView. The native parent translation
+      // cannot affect this coordinate, so reporting it cannot feed back on itself.
+      const bottom = cursorRow >= 0 && cursorRow < terminal.rows
+        ? Math.round(
+          screen.getBoundingClientRect().top - root.getBoundingClientRect().top
+            + (cursorRow + 1) * cellHeight,
+        )
+        : null;
+      const viewportHeight = Math.round(root.getBoundingClientRect().height);
+      const signature = bottom + ':' + viewportHeight;
+      if (signature === lastCursorGeometry) return;
+      lastCursorGeometry = signature;
+      send({ type: 'cursor-geometry', bottom, viewportHeight });
+    };
+    const scheduleCursorGeometry = () => {
+      if (!cursorGeometryFrame) cursorGeometryFrame = requestAnimationFrame(reportCursorGeometry);
+    };
+    window.herdrReportCursorGeometry = () => {
+      // A tab may have been hidden while another tab owned React Native's
+      // cursor measurement. Reannounce even when its geometry is unchanged.
+      lastCursorGeometry = '';
+      scheduleCursorGeometry();
+    };
     const reportTerminalVisualScrollState = atVisualBottom => {
       if (atVisualBottom === lastReportedAtVisualBottom) return;
       lastReportedAtVisualBottom = atVisualBottom;
@@ -451,6 +484,7 @@ const terminalSessionHtml = `<!doctype html>
         boundaryRevealPx: terminalBoundaryScrollState.boundaryRevealPx,
       });
       geometryElement.style.setProperty('--terminal-visual-offset', visualOffset + 'px');
+      scheduleCursorGeometry();
       const atVisualBottom = terminalAtVisualBottom({
         state: terminalBoundaryScrollState,
         bottomAllowancePx: bottomAllowance,
@@ -1128,6 +1162,7 @@ const terminalSessionHtml = `<!doctype html>
         requestedAtEpochMs: Date.now()
       });
       renderSelectionHandles();
+      scheduleCursorGeometry();
     };
     window.herdrFocus = () => {
       if (keyboardEnabled) terminal.focus();
@@ -1275,6 +1310,8 @@ const terminalSessionHtml = `<!doctype html>
       reportOfflineScroll();
       applyTerminalVisualInsets();
     });
+    terminal.onCursorMove(scheduleCursorGeometry);
+    terminal.onRender(scheduleCursorGeometry);
     terminal.buffer.onBufferChange(buffer => {
       clearInteractiveSelection(true);
       searchState = { query: '', caseSensitive: false, regex: false, matches: [], index: -1 };
@@ -1559,6 +1596,7 @@ const terminalSessionScript = terminalSessionHtml
     }
     api.herdrDispose = () => {
       disposed = true;
+      if (cursorGeometryFrame) cancelAnimationFrame(cursorGeometryFrame);
       offlineCache.dispose();
       pasteBridge.dispose();
       disposeAndroidImeBridge();
@@ -1721,6 +1759,7 @@ const terminalHtml = `<!doctype html>
       if (entry) {
         entry.root.style.transform = 'translateX(0)';
         call(key, 'herdrFit');
+        call(key, 'herdrReportCursorGeometry');
       }
     };
     window.herdrWriteBase64Chunk = (key, sequence, data, final, inputCookie, resizeCookie, inboundCookie) => call(key, 'herdrWriteBase64Chunk', [sequence, data, final, inputCookie, resizeCookie, inboundCookie]);

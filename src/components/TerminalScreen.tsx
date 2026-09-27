@@ -500,6 +500,11 @@ export const TerminalScreen = forwardRef<TerminalScreenHandle, Props>(
     const [forcedMouseInputWarningOpen, setForcedMouseInputWarningOpen] =
       useState(false);
     const [keyboardVisible, setKeyboardVisible] = useState(false);
+    const [cursorGeometry, setCursorGeometry] = useState<{
+      targetKey: string;
+      bottom: number | null;
+      viewportHeight: number;
+    } | null>(null);
     // Track the IME even while terminal input is disabled or focus is transferring.
     // Measure the unshifted viewport, since the controls move by this inset.
     const { inset: keyboardInset } = useKeyboardInset(keyboardViewportRef, {
@@ -552,14 +557,20 @@ export const TerminalScreen = forwardRef<TerminalScreenHandle, Props>(
           composerHeight,
           composerVisible: composeOpen,
           controlBarHeight,
+          cursorBottom: cursorGeometry?.targetKey === activeTarget?.key
+            ? cursorGeometry?.bottom : undefined,
           keyboardInset,
           topInset: 0,
+          viewportHeight: cursorGeometry?.targetKey === activeTarget?.key
+            ? cursorGeometry?.viewportHeight : undefined,
         }),
       [
         composeExpanded,
         composeOpen,
         composerHeight,
         controlBarHeight,
+        cursorGeometry,
+        activeTarget?.key,
         keyboardInset,
       ],
     );
@@ -2131,6 +2142,16 @@ export const TerminalScreen = forwardRef<TerminalScreenHandle, Props>(
                   current[target.key] === nextAtVisualBottom
                     ? current
                     : { ...current, [target.key]: nextAtVisualBottom },
+                );
+              }}
+              onCursorGeometry={(target, bottom, viewportHeight) => {
+                if (target.key !== activeTargetRef.current?.key) return;
+                setCursorGeometry(current =>
+                  current?.targetKey === target.key
+                    && current.bottom === bottom
+                    && current.viewportHeight === viewportHeight
+                    ? current
+                    : { targetKey: target.key, bottom, viewportHeight },
                 );
               }}
               onProtocolStateChange={(target, state) => {

@@ -224,6 +224,11 @@ interface Props {
     target: TerminalRenderTarget,
     atVisualBottom: boolean,
   ) => void;
+  onCursorGeometry?: (
+    target: TerminalRenderTarget,
+    bottom: number | null,
+    viewportHeight: number,
+  ) => void;
   onProtocolStateChange: (target: TerminalRenderTarget, state: TerminalProtocolState) => void;
   onTitleChange: (target: TerminalRenderTarget, title: string) => void;
   onFontSizeChange: (target: TerminalRenderTarget, fontSize: number) => void;
@@ -258,6 +263,7 @@ export const TerminalRendererHost = forwardRef<TerminalRendererHandle, Props>(fu
   onPaste,
   onBufferModeChange,
   onVisualScrollState,
+  onCursorGeometry,
   onProtocolStateChange,
   onTitleChange,
   onFontSizeChange,
@@ -293,6 +299,8 @@ export const TerminalRendererHost = forwardRef<TerminalRendererHandle, Props>(fu
   const reportPaste = useEffectEvent(onPaste);
   const reportBufferMode = useEffectEvent(onBufferModeChange);
   const reportVisualScrollState = useEffectEvent(onVisualScrollState);
+  const reportCursorGeometry = useEffectEvent((...args: Parameters<NonNullable<Props['onCursorGeometry']>>) =>
+    onCursorGeometry?.(...args));
   const reportProtocolState = useEffectEvent(onProtocolStateChange);
   const reportTitle = useEffectEvent(onTitleChange);
   const reportFontSize = useEffectEvent(onFontSizeChange);
@@ -1480,6 +1488,12 @@ export const TerminalRendererHost = forwardRef<TerminalRendererHandle, Props>(fu
     } else if (message.type === 'visual-scroll-state') {
       if (typeof message.atVisualBottom !== 'boolean') return;
       reportVisualScrollState(entry.target, message.atVisualBottom);
+    } else if (message.type === 'cursor-geometry') {
+      if ((message.bottom !== null && !isFiniteNumber(message.bottom))
+        || !isFiniteNumber(message.viewportHeight)) return;
+      if (entry.target.key === activeKey.current) {
+        reportCursorGeometry(entry.target, message.bottom, message.viewportHeight);
+      }
     } else if (message.type === 'visual-insets-debug') {
       console.info('[WHIP_TERMINAL_VISUAL]', JSON.stringify({
         key: entry.target.key,
