@@ -90,7 +90,10 @@ jest.mock('../src/theme', () => ({
   appGlassControlStyle: () => ({}),
 }));
 jest.mock('../src/services/volumeKeys', () => ({
-  addTerminalVolumeKeyListener: () => ({ remove: jest.fn() }),
+  addTerminalVolumeKeyListener: (listener: (key: 'up' | 'down') => void) => {
+    mockVolumeKeyListeners.add(listener);
+    return { remove: () => mockVolumeKeyListeners.delete(listener) };
+  },
 }));
 jest.mock('../src/services/terminalSoftInput', () => ({
   setTerminalKeyboardOverlay: jest.fn(async () => {}),
@@ -101,6 +104,7 @@ jest.mock('../src/services/operationalDiagnostics', () => ({
 }));
 
 const mockComposerHandle = { focus: jest.fn(), blur: jest.fn() };
+const mockVolumeKeyListeners = new Set<(key: 'up' | 'down') => void>();
 function MockMessageComposer(composerProps: { inputRef: Ref<unknown> }) {
   useImperativeHandle(composerProps.inputRef, () => mockComposerHandle);
   return require('react/jsx-runtime').jsx('MessageComposer', composerProps);
@@ -113,6 +117,8 @@ const terminalHandle = {
   setForcedMouseInput: jest.fn(),
   clearSearch: jest.fn(),
   cancelPendingResumeScroll: jest.fn(),
+  changeFontSize: jest.fn(),
+  scroll: jest.fn(),
 };
 const chatListHandle = { scrollToEnd: jest.fn(), scrollToOffset: jest.fn() };
 const screenHeight = 800;
@@ -255,6 +261,7 @@ function scrollEvent(offset: number) {
 beforeEach(() => {
   jest.useFakeTimers();
   jest.clearAllMocks();
+  mockVolumeKeyListeners.clear();
   listeners = new Map();
   jest.mocked(Keyboard.metrics).mockReturnValue(undefined);
   jest.mocked(Keyboard.isVisible).mockReturnValue(false);
@@ -266,6 +273,24 @@ beforeEach(() => {
       typeof Keyboard.addListener
     >;
   });
+});
+
+test('volume keys use the latest terminal action and ignore hidden terminals', () => {
+  const fontPreferences = { ...props.preferences, volumeUpAction: 'font-size' as const };
+  const scrollPreferences = { ...props.preferences, volumeUpAction: 'scroll' as const };
+  mount({ preferences: fontPreferences });
+
+  act(() => { for (const listener of mockVolumeKeyListeners) listener('up'); });
+  expect(terminalHandle.changeFontSize).toHaveBeenCalledWith(1);
+
+  act(() => renderer.update(<TerminalScreen {...props} preferences={scrollPreferences} />));
+  act(() => { for (const listener of mockVolumeKeyListeners) listener('up'); });
+  expect(terminalHandle.scroll).toHaveBeenCalledWith('up', 1);
+  expect(terminalHandle.changeFontSize).toHaveBeenCalledTimes(1);
+
+  act(() => renderer.update(<TerminalScreen {...props} visible={false} preferences={scrollPreferences} />));
+  act(() => { for (const listener of mockVolumeKeyListeners) listener('up'); });
+  expect(terminalHandle.scroll).toHaveBeenCalledTimes(1);
 });
 
 afterEach(() => {

@@ -2,7 +2,6 @@ package io.github.kaminarios.whip
 
 import android.os.Bundle
 import android.view.KeyEvent
-import com.facebook.react.ReactApplication
 import com.facebook.react.ReactActivity
 import com.facebook.react.ReactActivityDelegate
 import com.facebook.react.defaults.DefaultNewArchitectureEntryPoint.fabricEnabled
@@ -10,6 +9,7 @@ import com.facebook.react.defaults.DefaultReactActivityDelegate
 import expo.modules.ReactActivityDelegateWrapper
 
 class MainActivity : ReactActivity() {
+  private val handledVolumeKeys = mutableSetOf<Int>()
 
   override fun onCreate(savedInstanceState: Bundle?) {
     setTheme(R.style.AppTheme)
@@ -17,16 +17,15 @@ class MainActivity : ReactActivity() {
   }
 
   override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
-    if (!HerdrVolumeKeysModule.shouldIntercept(keyCode)) return super.onKeyDown(keyCode, event)
-    val value = HerdrVolumeKeysModule.eventValue(keyCode) ?: return super.onKeyDown(keyCode, event)
-    val reactContext = (application as ReactApplication).reactHost?.currentReactContext
-      ?: return super.onKeyDown(keyCode, event)
-    reactContext.emitDeviceEvent(HerdrVolumeKeysModule.EVENT_NAME, value)
-    return true
+    if (HerdrVolumeKeysModule.dispatchKey(keyCode)) {
+      handledVolumeKeys.add(keyCode)
+      return true
+    }
+    return super.onKeyDown(keyCode, event)
   }
 
   override fun onKeyUp(keyCode: Int, event: KeyEvent): Boolean {
-    if (HerdrVolumeKeysModule.shouldIntercept(keyCode)) return true
+    if (handledVolumeKeys.remove(keyCode)) return true
     return super.onKeyUp(keyCode, event)
   }
 

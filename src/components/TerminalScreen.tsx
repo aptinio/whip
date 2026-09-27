@@ -2,7 +2,6 @@ import {
   forwardRef,
   useCallback,
   useEffect,
-  useEffectEvent,
   useImperativeHandle,
   useMemo,
   useRef,
@@ -905,7 +904,7 @@ export const TerminalScreen = forwardRef<TerminalScreenHandle, Props>(
       return writeInput(value, target);
     };
 
-    const handleVolumeKey = useEffectEvent((key: TerminalVolumeKey) => {
+    const handleVolumeKey = (key: TerminalVolumeKey) => {
       if (!visible || !session) return;
       const configured =
         key === 'up'
@@ -920,10 +919,12 @@ export const TerminalScreen = forwardRef<TerminalScreenHandle, Props>(
       } else {
         reportBackgroundFailure(sendInput(action.data), TERMINAL_INPUT_CONTEXT);
       }
-    });
+    };
+    const volumeKeyHandlerRef = useRef(handleVolumeKey);
+    volumeKeyHandlerRef.current = handleVolumeKey;
 
     useEffect(() => {
-      const subscription = addTerminalVolumeKeyListener(handleVolumeKey);
+      const subscription = addTerminalVolumeKeyListener(key => volumeKeyHandlerRef.current(key));
       return () => subscription.remove();
     }, []);
 

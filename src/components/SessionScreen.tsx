@@ -1041,7 +1041,7 @@ export function SessionScreen({
   const chooseTabRef = useRef(chooseTab);
   chooseTabRef.current = chooseTab;
 
-  const handleVolumeKey = useEffectEvent((key: TerminalVolumeKey) => {
+  const handleVolumeKey = (key: TerminalVolumeKey) => {
     if (!visible) return;
     const configured =
       key === 'up'
@@ -1055,10 +1055,12 @@ export function SessionScreen({
     );
     const targetTab = context.tabs[currentIndex + action.direction];
     if (targetTab) chooseTabRef.current(targetTab);
-  });
+  };
+  const volumeKeyHandlerRef = useRef(handleVolumeKey);
+  volumeKeyHandlerRef.current = handleVolumeKey;
 
   useEffect(() => {
-    const subscription = addTerminalVolumeKeyListener(handleVolumeKey);
+    const subscription = addTerminalVolumeKeyListener(key => volumeKeyHandlerRef.current(key));
     return () => subscription.remove();
   }, []);
 

@@ -112,7 +112,10 @@ jest.mock('../src/components/ui/input', () => ({ Input: 'Input' }));
 jest.mock('../src/components/ui/switch', () => ({ Switch: 'Switch' }));
 jest.mock('../src/components/ui/text', () => ({ Text: 'Text' }));
 jest.mock('../src/services/volumeKeys', () => ({
-  addTerminalVolumeKeyListener: () => ({ remove: jest.fn() }),
+  addTerminalVolumeKeyListener: (listener: (key: 'up' | 'down') => void) => {
+    mockVolumeKeyListeners.add(listener);
+    return { remove: () => mockVolumeKeyListeners.delete(listener) };
+  },
 }));
 jest.mock('../src/theme', () => ({
   useTheme: () => ({ colors: {} }),
@@ -123,6 +126,7 @@ jest.mock('../src/theme', () => ({
 
 type Props = ComponentProps<typeof SessionScreen>;
 const mockChatFrames: Array<{ visible: boolean; chat: boolean }> = [];
+const mockVolumeKeyListeners = new Set<(key: 'up' | 'down') => void>();
 const mockAppStateListeners = new Set<(state: string) => void>();
 function setup(agent: ChatAgent) {
   const bindings = new Map<string, NativeAgentChatBinding>();
@@ -267,9 +271,41 @@ const navigationPhases = [
 
 beforeEach(() => {
   mockChatFrames.length = 0;
+  mockVolumeKeyListeners.clear();
   jest.mocked(listenToChat).mockClear();
   jest.spyOn(console, 'info').mockImplementation(() => {});
   jest.spyOn(agentChatCache, 'loadNative').mockResolvedValue(null);
+});
+
+test('volume key tab navigation uses the current action after settings change', async () => {
+  const host = setup('codex');
+  const nextPane = {
+    ...host.pane,
+    pane_id: 'pane-2',
+    terminal_id: 'terminal-2',
+    tab_id: 'tab-2',
+    focused: false,
+  };
+  const snapshot = {
+    ...host.props.snapshot,
+    panes: [host.pane, nextPane],
+    tabs: [
+      ...host.props.snapshot.tabs,
+      { workspace_id: 'workspace-1', tab_id: 'tab-2', focused: false },
+    ],
+  } as HerdrSnapshot;
+  host.props.snapshot = snapshot;
+  host.setSnapshot(snapshot);
+  Object.assign(host.native, { requestHerdrApi: jest.fn(async () => ({})) });
+
+  act(() => { renderer = create(<SessionScreen {...host.props} />); });
+  act(() => renderer.update(<SessionScreen {...host.props} terminalPreferences={{
+    ...host.props.terminalPreferences,
+    volumeDownAction: 'terminal-tab',
+  }} />));
+  await act(async () => { for (const listener of mockVolumeKeyListeners) listener('down'); });
+
+  expect(host.props.onActivateTerminal).toHaveBeenCalledWith(nextPane);
 });
 afterEach(() => {
   act(() => renderer?.unmount());

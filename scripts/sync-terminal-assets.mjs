@@ -938,6 +938,13 @@ const terminalSessionHtml = `<!doctype html>
     const scrollTerminal = (direction, lines, point) => {
       const count = Math.max(1, Math.round(Number(lines) || 1));
       if (dispatchTerminalWheel(direction, count, point)) return;
+      if (!offlineScrollback && !localScrollback) {
+        const cell = terminalMouseCell(point);
+        for (let index = 0; index < count; index += 1) {
+          send({ type: 'scroll', direction, lines: 1, column: cell?.col, row: cell?.row });
+        }
+        return;
+      }
       scrollTerminalPixels(
         (direction === 'up' ? 1 : -1) * count * terminalCellHeight(),
         point,
