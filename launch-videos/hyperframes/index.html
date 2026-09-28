@@ -41,14 +41,14 @@
           </div>
           <div data-hf-id="hf-brand2" class="intro-icon-shell intro-whip"><img data-hf-id="hf-brand3" src="./assets/icon-intro.png" alt="Whip"></div>
         </div>
-        <div data-hf-id="hf-brand9" class="intro-relation"><strong data-hf-id="hf-branda">Agent-Native Mobile Client</strong></div>
+        <div data-hf-id="hf-brand9" class="intro-relation"><strong data-hf-id="hf-branda">Whip,</strong><span data-hf-id="hf-brand-tagline">agent-native mobile Herdr client over SSH.</span></div>
       </section>
 
       <section data-hf-id="hf-ir10" id="hero" class="clip shot shot-hero" data-start="3.4" data-duration="4.8" data-track-index="2" data-layout-allow-overflow="">
         <div data-hf-id="hf-u0dw" class="hero-copy" data-layout-allow-overlap="">
-          <div data-hf-id="hf-umee" class="brand-lockup"><img data-hf-id="hf-md0t" src="./assets/icon.png" alt="Whip"><span data-hf-id="hf-cvgm">Multi-host iPhone client</span></div>
+          <div data-hf-id="hf-umee" class="brand-lockup"><img data-hf-id="hf-md0t" src="./assets/icon.png" alt="Whip"><span data-hf-id="hf-cvgm">Herdr over SSH</span></div>
           <h1 data-hf-id="hf-y1h8">Whip</h1>
-          <p data-hf-id="hf-k4nc">All your remote hosts, one iPhone client.</p>
+          <p data-hf-id="hf-k4nc">agent-native mobile Herdr client over SSH.</p>
         </div>
         <div data-hf-id="hf-6jwj" class="macro-label">2 hosts · one live client</div>
       </section>
@@ -83,9 +83,9 @@
 
       <section data-hf-id="hf-chat0" id="composer" class="clip shot shot-composer" data-start="22" data-duration="4.5" data-track-index="5" data-layout-allow-overflow="">
         <div data-hf-id="hf-chat1" class="composer-copy">
-          <span data-hf-id="hf-chat2">Chat composer</span>
+          <span data-hf-id="hf-chat2">Agent chat view</span>
           <h2 data-hf-id="hf-chat3">Direct the agent.<br data-hf-id="hf-chat4">From anywhere.</h2>
-          <p data-hf-id="hf-chat5">Edit and send commands without leaving the active session.</p>
+          <p data-hf-id="hf-chat5">Follow the live conversation and draft your next message.</p>
         </div>
       </section>
 
@@ -126,7 +126,7 @@
       <video data-hf-id="hf-ng33" id="phone-hosts" class="clip phone-source" src="./assets/ios/hosts.mp4" data-start="3.4" data-duration="4.8" data-track-index="8" data-layout-ignore="" muted playsinline></video>
       <video data-hf-id="hf-atg4" id="phone-herd" class="clip phone-source" src="./assets/ios/herd-status.mp4" data-start="8.2" data-duration="11.15" data-track-index="8" data-layout-ignore="" muted playsinline></video>
       <video data-hf-id="hf-6v3t" id="phone-terminal" class="clip phone-source" src="./assets/ios/terminal.mp4" data-start="19.35" data-duration="2.65" data-track-index="8" data-layout-ignore="" muted playsinline></video>
-      <video data-hf-id="hf-chat-video" id="phone-chat" class="clip phone-source" src="./assets/ios/chat.mp4" data-start="22" data-duration="4.5" data-track-index="8" data-layout-ignore="" muted playsinline></video>
+      <video data-hf-id="hf-chat-video" id="phone-chat" class="clip phone-source" src="./assets/ios/chat-view.mp4" data-start="22" data-duration="4.5" data-track-index="8" data-layout-ignore="" muted playsinline></video>
       <video data-hf-id="hf-kswl" id="phone-files" class="clip phone-source" src="./assets/ios/files.mp4" data-start="26.5" data-duration="4" data-track-index="8" data-layout-ignore="" muted playsinline></video>
       <video data-hf-id="hf-ip64" id="phone-herd-final" class="clip phone-source" src="./assets/ios/herd-final.mp4" data-start="30.5" data-duration="4.5" data-track-index="8" data-layout-ignore="" muted playsinline></video>
 
@@ -166,7 +166,7 @@
       const introLinkLength = introLinkBase.getTotalLength();
       tl.fromTo('.intro-link-base', {strokeDasharray: introLinkLength, strokeDashoffset: introLinkLength, autoAlpha: 0}, {strokeDashoffset: 0, autoAlpha: 1, duration: .36, ease: 'power2.out', immediateRender: false}, 1.13);
       tl.fromTo('.intro-link-stream', {strokeDashoffset: 0, autoAlpha: 0}, {strokeDashoffset: -228, autoAlpha: 1, duration: 1.3, ease: 'none', immediateRender: false}, 1.3);
-      enter('.intro-relation', 1.32, {y: 44, scale: .9, autoAlpha: 0}, {y: 0, scale: 1, autoAlpha: 1}, .55, 'back.out(1.12)');
+      enter('.intro-relation', .38, {y: 44, scale: .9, autoAlpha: 0}, {y: 0, scale: 1, autoAlpha: 1}, .62, 'back.out(1.12)');
       tl.to('#soundtrack', {volume: .4, duration: .08, ease: 'power2.out'}, 1.01);
       tl.to('#soundtrack', {volume: .95, duration: .55, ease: 'sine.out'}, 2.05);
       tl.to('.brand-bridge, .intro-relation', {scale: 1.08, autoAlpha: 0, duration: .34, ease: 'power4.in'}, 3.02);
@@ -416,12 +416,37 @@
         object.rotation.set(rotation[0], rotation[1], rotation[2]);
         object.scale.setScalar(scale);
       };
+      const cameraTarget = new THREE.Vector3();
+      let cameraRoll = 0;
       const setCamera = (position, target, roll = 0, fov = 31) => {
         camera.position.copy(position);
+        cameraTarget.copy(target);
+        cameraRoll = roll;
         camera.fov = fov;
         camera.updateProjectionMatrix();
         camera.lookAt(target);
         camera.rotateZ(roll);
+      };
+      const closeUps = [
+        {start: 12.9, arrive: 13.7, leave: 14.7, end: 15.9, side: -.85, distance: .73, fov: .95},
+        {start: 19.4, arrive: 20, leave: 20.7, end: 21.8, side: .35, distance: .95, fov: .95},
+        {start: 22, arrive: 22.8, leave: 25.5, end: 26.5, side: -.8, distance: .84, fov: .98},
+        {start: 26.5, arrive: 27.1, leave: 28.2, end: 30.2, side: -.85, distance: .87, fov: .98},
+      ];
+      const focusOnPhone = (time) => {
+        const beat = closeUps.find(({start, end}) => time >= start && time < end);
+        if (!beat) return;
+        const focus = smooth((time - beat.start) / (beat.arrive - beat.start))
+          * (1 - smooth((time - beat.leave) / (beat.end - beat.leave)));
+        const offset = camera.position.clone().sub(cameraTarget);
+        const target = phoneRig.position.clone().add(new THREE.Vector3(beat.side, 0, 0));
+        const closePosition = target.clone().addScaledVector(offset, beat.distance);
+        camera.position.lerp(closePosition, focus);
+        cameraTarget.lerp(target, focus);
+        camera.fov = lerp(camera.fov, camera.fov * beat.fov, focus);
+        camera.updateProjectionMatrix();
+        camera.lookAt(cameraTarget);
+        camera.rotateZ(cameraRoll);
       };
 
       let currentScreen = 'hosts';
@@ -431,6 +456,16 @@
         phoneDisplay.material.needsUpdate = true;
         currentScreen = name;
       };
+      for (const [name, texture] of phoneVideos) {
+        const video = document.getElementById(`phone-${name}`);
+        const refreshFrame = () => {
+          if (currentScreen !== name) return;
+          texture.needsUpdate = true;
+          renderer.render(scene, camera);
+        };
+        video.addEventListener('seeked', refreshFrame);
+        video.addEventListener('loadeddata', refreshFrame);
+      }
 
       const renderAt = (time) => {
         const t = Math.min(35, Math.max(0, Number(time) || 0));
@@ -548,6 +583,7 @@
           ground.position.y = -3.22;
         }
 
+        focusOnPhone(t);
         if (phoneVideos.has(currentScreen)) phoneVideos.get(currentScreen).needsUpdate = true;
         renderer.render(scene, camera);
       };

@@ -32,15 +32,16 @@ html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background:
 .intro-link-flow path { fill: none; stroke-linecap: round; }
 .intro-link-base { stroke: rgba(74, 74, 78, .28); stroke-width: 5; }
 .intro-link-stream { stroke: url('#intro-flow-gradient'); stroke-width: 7; stroke-dasharray: 20 18; }
-.intro-relation { position: absolute; left: 0; bottom: 90px; width: 100%; display: flex; align-items: baseline; justify-content: center; white-space: nowrap; }
-.intro-relation strong { font-size: 72px; line-height: 1; font-weight: 900; letter-spacing: -.055em; }
+.intro-relation { position: absolute; left: 0; bottom: 62px; width: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; white-space: nowrap; }
+.intro-relation strong { font-size: 96px; line-height: 1; font-weight: 900; letter-spacing: -.055em; }
+.intro-relation span { color: #4f4d4b; font-size: 38px; line-height: 1.15; font-weight: 600; letter-spacing: -.025em; }
 
 .brand-lockup { display: flex; align-items: center; gap: 18px; }
 .brand-lockup img { width: 64px; height: 64px; border-radius: 17px; filter: drop-shadow(0 18px 34px rgba(27, 22, 20, .18)); }
 .brand-lockup span, .sync-copy > span, .alert-copy > span, .final-copy > span { color: #9f2a1e; font-size: 18px; line-height: 1; font-weight: 900; letter-spacing: .24em; }
 .hero-copy { position: absolute; z-index: 12; left: 110px; top: 112px; }
 .hero-copy h1 { margin: 25px 0 6px; font-size: 190px; line-height: .78; font-weight: 900; letter-spacing: -.075em; }
-.hero-copy p { width: 470px; margin: 30px 0 0 7px; color: #4f4d4b; font-size: 30px; line-height: 1.18; font-weight: 500; letter-spacing: -.025em; }
+.hero-copy p { width: 590px; margin: 30px 0 0 7px; color: #4f4d4b; font-size: 30px; line-height: 1.18; font-weight: 500; letter-spacing: -.025em; }
 .macro-label { position: absolute; right: 80px; bottom: 58px; color: #514d49; font-size: 16px; font-weight: 800; letter-spacing: .2em; }
 
 .sync-copy { position: absolute; z-index: 14; left: 86px; top: 116px; width: 660px; }

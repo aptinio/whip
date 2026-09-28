@@ -52,7 +52,7 @@ const files = [
   ['launch-videos/source-assets/ios/herd-status.mp4', 'ios/herd-status.mp4'],
   ['launch-videos/source-assets/ios/herd-final.mp4', 'ios/herd-final.mp4'],
   ['launch-videos/source-assets/ios/terminal.mp4', 'ios/terminal.mp4'],
-  ['launch-videos/source-assets/ios/chat.mp4', 'ios/chat.mp4'],
+  ['launch-videos/source-assets/ios/chat-view.mp4', 'ios/chat-view.mp4'],
   ['launch-videos/source-assets/ios/files.mp4', 'ios/files.mp4'],
   ['launch-videos/source-assets/models/laptop/scene.gltf', 'models/laptop/scene.gltf'],
   ['launch-videos/source-assets/models/laptop/scene.bin', 'models/laptop/scene.bin'],
