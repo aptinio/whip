@@ -1,4 +1,4 @@
-import {copyFile, mkdir} from 'node:fs/promises';
+import {access, copyFile, mkdir} from 'node:fs/promises';
 import {dirname, resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
 
@@ -46,6 +46,14 @@ const files = [
   ['launch-videos/source-assets/models/pixel-9-pro/scene.gltf', 'models/pixel-9-pro/scene.gltf'],
   ['launch-videos/source-assets/models/pixel-9-pro/scene.bin', 'models/pixel-9-pro/scene.bin'],
   ['launch-videos/source-assets/models/pixel-9-pro/license.txt', 'models/pixel-9-pro/license.txt'],
+  ['launch-videos/source-assets/models/iphone-17-pro/iphone-17-pro.glb', 'models/iphone-17-pro/iphone-17-pro.glb'],
+  ['launch-videos/source-assets/models/iphone-17-pro/license.txt', 'models/iphone-17-pro/license.txt'],
+  ['launch-videos/source-assets/ios/hosts.mp4', 'ios/hosts.mp4'],
+  ['launch-videos/source-assets/ios/herd-status.mp4', 'ios/herd-status.mp4'],
+  ['launch-videos/source-assets/ios/herd-final.mp4', 'ios/herd-final.mp4'],
+  ['launch-videos/source-assets/ios/terminal.mp4', 'ios/terminal.mp4'],
+  ['launch-videos/source-assets/ios/chat.mp4', 'ios/chat.mp4'],
+  ['launch-videos/source-assets/ios/files.mp4', 'ios/files.mp4'],
   ['launch-videos/source-assets/models/laptop/scene.gltf', 'models/laptop/scene.gltf'],
   ['launch-videos/source-assets/models/laptop/scene.bin', 'models/laptop/scene.bin'],
   ['launch-videos/source-assets/models/laptop/license.txt', 'models/laptop/license.txt'],
@@ -72,9 +80,17 @@ const files = [
 
 for (const target of targets) {
   for (const [source, destination] of files) {
+    const input = resolve(repo, source);
+    if (source.startsWith('assets/screenshots/')) {
+      try {
+        await access(input);
+      } catch {
+        continue;
+      }
+    }
     const output = resolve(target, destination);
     await mkdir(dirname(output), {recursive: true});
-    await copyFile(resolve(repo, source), output);
+    await copyFile(input, output);
   }
 }
 

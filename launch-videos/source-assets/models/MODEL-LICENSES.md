@@ -3,6 +3,13 @@
 The production launch video uses the following downloaded Sketchfab models.
 All are licensed under Creative Commons Attribution 4.0 International.
 
+## iPhone 17 Pro
+
+- Creator: Ibrahim.Bhl
+- Source: [Sketchfab model](https://sketchfab.com/3d-models/iphone-17-pro-4aeeeb41f9d14f96bb3f2589edc3edac)
+- License: [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)
+- Use: replaces the Pixel phone model; the screen displays iPhone simulator recordings.
+
 ## Google Pixel 9 & Pixel 9 Pro (Low Poly)
 
 - Creator: [s12311061](https://sketchfab.com/s12311061)
