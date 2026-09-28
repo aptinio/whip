@@ -83,9 +83,9 @@
 
       <section data-hf-id="hf-chat0" id="composer" class="clip shot shot-composer" data-start="22" data-duration="4.5" data-track-index="5" data-layout-allow-overflow="">
         <div data-hf-id="hf-chat1" class="composer-copy">
-          <span data-hf-id="hf-chat2">Agent chat view</span>
-          <h2 data-hf-id="hf-chat3">Direct the agent.<br data-hf-id="hf-chat4">From anywhere.</h2>
-          <p data-hf-id="hf-chat5">Follow the live conversation and draft your next message.</p>
+          <span data-hf-id="hf-chat2">Live agent conversation</span>
+          <h2 data-hf-id="hf-chat3">Chat View.<br data-hf-id="hf-chat4">See the conversation.</h2>
+          <p data-hf-id="hf-chat5">Read your messages and the agent's replies in the live session.</p>
         </div>
       </section>
 
@@ -427,26 +427,25 @@
         camera.lookAt(target);
         camera.rotateZ(roll);
       };
-      const closeUps = [
-        {start: 12.9, arrive: 13.7, leave: 14.7, end: 15.9, side: -.85, distance: .73, fov: .95},
-        {start: 19.4, arrive: 20, leave: 20.7, end: 21.8, side: .35, distance: .95, fov: .95},
-        {start: 22, arrive: 22.8, leave: 25.5, end: 26.5, side: -.8, distance: .84, fov: .98},
-        {start: 26.5, arrive: 27.1, leave: 28.2, end: 30.2, side: -.85, distance: .87, fov: .98},
+      const featureShots = [
+        {start: 12.5, settle: 13.6, end: 16.2, position: [2.15, .45, 10.7], target: [2.15, 0, 0], fov: 31},
+        {start: 19.35, settle: 20, end: 22, position: [-.65, .3, 13.7], target: [-.65, 0, 0], fov: 31},
+        {start: 22, settle: 22, end: 26.5, position: [1, .35, 11.2], target: [1, 0, 0], fov: 31},
+        {start: 26.5, settle: 26.5, end: 30.5, position: [1.2, .35, 9.5], target: [1.2, 0, 0], fov: 31},
       ];
-      const focusOnPhone = (time) => {
-        const beat = closeUps.find(({start, end}) => time >= start && time < end);
-        if (!beat) return;
-        const focus = smooth((time - beat.start) / (beat.arrive - beat.start))
-          * (1 - smooth((time - beat.leave) / (beat.end - beat.leave)));
-        const offset = camera.position.clone().sub(cameraTarget);
-        const target = phoneRig.position.clone().add(new THREE.Vector3(beat.side, 0, 0));
-        const closePosition = target.clone().addScaledVector(offset, beat.distance);
-        camera.position.lerp(closePosition, focus);
-        cameraTarget.lerp(target, focus);
-        camera.fov = lerp(camera.fov, camera.fov * beat.fov, focus);
+      const frameFeature = (time) => {
+        const shot = featureShots.find(({start, end}) => time >= start && time < end);
+        if (!shot) return;
+        const blend = shot.settle === shot.start ? 1 : smooth((time - shot.start) / (shot.settle - shot.start));
+        const drift = smooth((time - shot.settle) / (shot.end - shot.settle));
+        const position = new THREE.Vector3(...shot.position);
+        position.z -= .25 * drift;
+        camera.position.lerp(position, blend);
+        cameraTarget.lerp(new THREE.Vector3(...shot.target), blend);
+        camera.fov = lerp(camera.fov, shot.fov, blend);
         camera.updateProjectionMatrix();
         camera.lookAt(cameraTarget);
-        camera.rotateZ(cameraRoll);
+        camera.rotateZ(cameraRoll * (1 - blend));
       };
 
       let currentScreen = 'hosts';
@@ -583,7 +582,7 @@
           ground.position.y = -3.22;
         }
 
-        focusOnPhone(t);
+        frameFeature(t);
         if (phoneVideos.has(currentScreen)) phoneVideos.get(currentScreen).needsUpdate = true;
         renderer.render(scene, camera);
       };
