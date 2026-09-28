@@ -234,6 +234,12 @@ impl HostState {
             return self.fail_sync(token, reason);
         }
         normalize_snapshot(&mut snapshot);
+        // A full snapshot is the authoritative status baseline. Events received
+        // while it was in flight were also projected onto the old snapshot for
+        // the UI, but only their replay against this baseline can establish a
+        // live status transition.
+        self.agent_statuses = agent_statuses_from_snapshot(&snapshot);
+        self.bump_revision();
         let mut replay_error = None;
         for event in active.buffered_events {
             if let HerdrEvent::PaneClosed { pane_id, .. } = &event {
@@ -243,6 +249,8 @@ impl HostState {
             }
             if let Err(reason) = apply_event_transactional(&mut snapshot, &event) {
                 replay_error.get_or_insert(reason);
+            } else {
+                self.capture_agent_status_transitions(agent_statuses_from_snapshot(&snapshot));
             }
         }
         self.locally_closed_pane_ids.clear();
@@ -257,7 +265,6 @@ impl HostState {
         } else {
             HostFreshness::Fresh
         };
-        self.bump_revision();
         replay_error.map_or(ApplyResult::Applied, ApplyResult::NeedsResync)
     }
 
@@ -354,7 +361,11 @@ impl HostState {
             }
             ApplyResult::IgnoredStale => {}
         }
-        self.bump_revision();
+        if self.active_sync.is_some() {
+            self.bump_revision();
+        } else {
+            self.bump_revision_with_agent_transitions();
+        }
         result
     }
 
@@ -393,7 +404,7 @@ impl HostState {
                 if let Some(pane_id) = locally_closed_pane_id {
                     self.locally_closed_pane_ids.insert(pane_id);
                 }
-                self.bump_revision();
+                self.bump_revision_with_agent_transitions();
                 ApplyResult::Applied
             }
             Ok(ControlProjection::AppliedNeedsResync(reason)) => {
@@ -402,7 +413,7 @@ impl HostState {
                 self.needs_resync = true;
                 self.error = Some(reason.clone());
                 self.freshness = HostFreshness::Stale;
-                self.bump_revision();
+                self.bump_revision_with_agent_transitions();
                 ApplyResult::NeedsResync(reason)
             }
             Ok(ControlProjection::Unchanged) => ApplyResult::Applied,
@@ -472,21 +483,16 @@ impl HostState {
 
     fn bump_revision(&mut self) {
         self.revision = self.revision.saturating_add(1);
-        self.capture_agent_status_transitions();
     }
 
-    fn capture_agent_status_transitions(&mut self) {
-        let Some(snapshot) = self.snapshot.as_ref() else {
-            return;
-        };
-        let mut current = snapshot
-            .panes
-            .iter()
-            .map(|pane| (pane.pane_id.clone(), pane.agent_status))
-            .collect::<HashMap<_, _>>();
-        for agent in &snapshot.agents {
-            current.insert(agent.pane_id.clone(), agent.agent_status);
+    fn bump_revision_with_agent_transitions(&mut self) {
+        self.bump_revision();
+        if let Some(snapshot) = self.snapshot.as_ref() {
+            self.capture_agent_status_transitions(agent_statuses_from_snapshot(snapshot));
         }
+    }
+
+    fn capture_agent_status_transitions(&mut self, current: HashMap<String, HerdrAgentStatus>) {
         let mut pane_ids = self
             .agent_statuses
             .keys()
@@ -522,6 +528,20 @@ impl HostState {
         }
         self.agent_statuses = current;
     }
+}
+
+fn agent_statuses_from_snapshot(
+    snapshot: &HerdrSessionSnapshot,
+) -> HashMap<String, HerdrAgentStatus> {
+    let mut statuses = snapshot
+        .panes
+        .iter()
+        .map(|pane| (pane.pane_id.clone(), pane.agent_status))
+        .collect::<HashMap<_, _>>();
+    for agent in &snapshot.agents {
+        statuses.insert(agent.pane_id.clone(), agent.agent_status);
+    }
+    statuses
 }
 
 pub(crate) fn now_ms() -> u64 {
@@ -1546,6 +1566,15 @@ mod tests {
         }
     }
 
+    fn snapshot_with_agent_status(status: HerdrAgentStatus) -> HerdrSessionSnapshot {
+        let mut value = snapshot();
+        value.panes[0].agent_status = status;
+        let mut agent = agent("p1", HerdrAgentKind::Codex, "thread");
+        agent.agent_status = status;
+        value.agents.push(agent);
+        value
+    }
+
     fn synced_state() -> HostState {
         let mut state = HostState::default();
         state.connection_installed(1);
@@ -1567,6 +1596,79 @@ mod tests {
             display_agent: None,
             state_labels: None,
         }
+    }
+
+    #[test]
+    fn initial_snapshots_establish_blocked_and_done_baselines_without_transitions() {
+        for status in [HerdrAgentStatus::Blocked, HerdrAgentStatus::Done] {
+            let mut state = HostState::default();
+            state.connection_installed(1);
+            let token = state.begin_sync(1);
+            assert_eq!(
+                state.complete_sync(token, snapshot_with_agent_status(status), 10),
+                ApplyResult::Applied
+            );
+            assert!(state.take_agent_status_transitions().is_empty());
+            assert_eq!(state.agent_statuses.get("p1"), Some(&status));
+        }
+    }
+
+    #[test]
+    fn reconnect_and_resync_snapshots_do_not_create_status_transitions() {
+        let mut state = HostState::default();
+        state.connection_installed(1);
+        let token = state.begin_sync(1);
+        state.complete_sync(
+            token,
+            snapshot_with_agent_status(HerdrAgentStatus::Blocked),
+            10,
+        );
+
+        state.mark_reconnecting("connection lost".to_owned());
+        state.connection_installed(2);
+        let token = state.begin_sync(2);
+        state.complete_sync(
+            token,
+            snapshot_with_agent_status(HerdrAgentStatus::Blocked),
+            20,
+        );
+        assert!(state.take_agent_status_transitions().is_empty());
+
+        let token = state.begin_sync(2);
+        state.complete_sync(
+            token,
+            snapshot_with_agent_status(HerdrAgentStatus::Done),
+            30,
+        );
+        assert!(state.take_agent_status_transitions().is_empty());
+        assert_eq!(
+            state.agent_statuses.get("p1"),
+            Some(&HerdrAgentStatus::Done)
+        );
+    }
+
+    #[test]
+    fn reconnect_snapshot_replaces_stale_status_without_a_transition() {
+        let mut state = synced_state();
+        state.apply_event(1, status_event(HerdrAgentStatus::Working), 20);
+        state.take_agent_status_transitions();
+        state.apply_event(1, status_event(HerdrAgentStatus::Unknown), 21);
+        state.take_agent_status_transitions();
+
+        state.mark_reconnecting("connection lost".to_owned());
+        state.connection_installed(2);
+        let token = state.begin_sync(2);
+        state.complete_sync(
+            token,
+            snapshot_with_agent_status(HerdrAgentStatus::Blocked),
+            30,
+        );
+
+        assert!(state.take_agent_status_transitions().is_empty());
+        assert_eq!(
+            state.agent_statuses.get("p1"),
+            Some(&HerdrAgentStatus::Blocked)
+        );
     }
 
     #[test]
@@ -1592,6 +1694,40 @@ mod tests {
     }
 
     #[test]
+    fn leaving_and_reentering_blocked_emits_a_new_transition() {
+        let mut state = synced_state();
+        state.apply_event(1, status_event(HerdrAgentStatus::Working), 20);
+        state.take_agent_status_transitions();
+        state.apply_event(1, status_event(HerdrAgentStatus::Blocked), 21);
+        state.take_agent_status_transitions();
+
+        state.apply_event(1, status_event(HerdrAgentStatus::Working), 22);
+        let working = state.take_agent_status_transitions();
+        state.apply_event(1, status_event(HerdrAgentStatus::Blocked), 23);
+        let blocked_again = state.take_agent_status_transitions();
+
+        assert_eq!(working.len(), 1);
+        assert_eq!(working[0].previous, Some(HerdrAgentStatus::Blocked));
+        assert_eq!(working[0].current, Some(HerdrAgentStatus::Working));
+        assert_eq!(blocked_again.len(), 1);
+        assert_eq!(blocked_again[0].previous, Some(HerdrAgentStatus::Working));
+        assert_eq!(blocked_again[0].current, Some(HerdrAgentStatus::Blocked));
+    }
+
+    #[test]
+    fn working_to_done_event_emits_one_transition() {
+        let mut state = synced_state();
+        state.apply_event(1, status_event(HerdrAgentStatus::Working), 20);
+        state.take_agent_status_transitions();
+
+        state.apply_event(1, status_event(HerdrAgentStatus::Done), 21);
+        let transitions = state.take_agent_status_transitions();
+        assert_eq!(transitions.len(), 1);
+        assert_eq!(transitions[0].previous, Some(HerdrAgentStatus::Working));
+        assert_eq!(transitions[0].current, Some(HerdrAgentStatus::Done));
+    }
+
+    #[test]
     fn newer_status_events_win_over_an_in_flight_blocked_snapshot() {
         for final_status in [
             HerdrAgentStatus::Working,
@@ -1599,17 +1735,13 @@ mod tests {
             HerdrAgentStatus::Idle,
         ] {
             let mut state = synced_state();
-            let mut blocked = snapshot();
-            blocked.panes[0].agent_status = HerdrAgentStatus::Blocked;
-            blocked
-                .agents
-                .push(agent("p1", HerdrAgentKind::Codex, "thread"));
-            blocked.agents[0].agent_status = HerdrAgentStatus::Blocked;
+            let blocked = snapshot_with_agent_status(HerdrAgentStatus::Blocked);
             let initial = state.begin_sync(1);
             state.complete_sync(initial, blocked.clone(), 11);
             state.take_agent_status_transitions();
             let token = state.begin_sync(1);
             state.apply_event(1, status_event(final_status), 12);
+            assert!(state.take_agent_status_transitions().is_empty());
             assert_eq!(
                 state.complete_sync(token, blocked, 13),
                 ApplyResult::Applied
@@ -1650,7 +1782,12 @@ mod tests {
         state.take_agent_status_transitions();
         let token = state.begin_sync(1);
         state.apply_event(1, status_event(HerdrAgentStatus::Blocked), 21);
-        state.complete_sync(token, snapshot(), 22);
+        assert!(state.take_agent_status_transitions().is_empty());
+        state.complete_sync(
+            token,
+            snapshot_with_agent_status(HerdrAgentStatus::Working),
+            22,
+        );
 
         let transitions = state.take_agent_status_transitions();
         let resync = state.begin_sync(1);
@@ -1664,7 +1801,7 @@ mod tests {
     }
 
     #[test]
-    fn stale_event_is_ignored_and_pane_disappearance_is_cleared_once() {
+    fn stale_event_is_ignored_and_snapshot_pane_disappearance_resets_baseline() {
         let mut state = synced_state();
         state.apply_event(1, status_event(HerdrAgentStatus::Working), 20);
         state.take_agent_status_transitions();
@@ -1684,11 +1821,75 @@ mod tests {
         empty.tabs.clear();
         empty.panes.clear();
         state.complete_sync(token, empty, 22);
-        let cleared = state.take_agent_status_transitions();
+        assert!(state.take_agent_status_transitions().is_empty());
+        assert!(state.agent_statuses.is_empty());
+    }
 
-        assert_eq!(cleared.len(), 1);
-        assert_eq!(cleared[0].previous, Some(HerdrAgentStatus::Working));
-        assert_eq!(cleared[0].current, None);
+    #[test]
+    fn live_pane_creation_and_removal_only_emit_the_observed_removal() {
+        let mut state = synced_state();
+        state.apply_event(
+            1,
+            HerdrEvent::PaneCreated {
+                pane: pane("p2", "w1", "t1", HerdrAgentStatus::Blocked),
+            },
+            20,
+        );
+        assert!(state.take_agent_status_transitions().is_empty());
+
+        state.apply_event(
+            1,
+            HerdrEvent::PaneClosed {
+                workspace_id: "w1".to_owned(),
+                pane_id: "p2".to_owned(),
+            },
+            21,
+        );
+        let transitions = state.take_agent_status_transitions();
+        assert_eq!(transitions.len(), 1);
+        assert_eq!(transitions[0].pane_id, "p2");
+        assert_eq!(transitions[0].previous, Some(HerdrAgentStatus::Blocked));
+        assert_eq!(transitions[0].current, None);
+    }
+
+    #[test]
+    fn buffered_event_after_initial_snapshot_baseline_emits_a_transition() {
+        let mut state = HostState::default();
+        state.connection_installed(1);
+        let token = state.begin_sync(1);
+        assert!(matches!(
+            state.apply_event(1, status_event(HerdrAgentStatus::Blocked), 11),
+            ApplyResult::NeedsResync(_)
+        ));
+        assert!(state.take_agent_status_transitions().is_empty());
+
+        assert_eq!(
+            state.complete_sync(
+                token,
+                snapshot_with_agent_status(HerdrAgentStatus::Working),
+                12,
+            ),
+            ApplyResult::Applied
+        );
+        let transitions = state.take_agent_status_transitions();
+        assert_eq!(transitions.len(), 1);
+        assert_eq!(transitions[0].previous, Some(HerdrAgentStatus::Working));
+        assert_eq!(transitions[0].current, Some(HerdrAgentStatus::Blocked));
+    }
+
+    #[test]
+    fn buffered_status_equal_to_snapshot_baseline_does_not_emit_a_transition() {
+        let mut state = HostState::default();
+        state.connection_installed(1);
+        let token = state.begin_sync(1);
+        state.apply_event(1, status_event(HerdrAgentStatus::Blocked), 11);
+
+        state.complete_sync(
+            token,
+            snapshot_with_agent_status(HerdrAgentStatus::Blocked),
+            12,
+        );
+        assert!(state.take_agent_status_transitions().is_empty());
     }
 
     #[test]
