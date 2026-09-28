@@ -13,11 +13,12 @@
   <a href="https://github.com/kosumic/whip/actions/workflows/ci.yml"><img src="https://github.com/kosumic/whip/actions/workflows/ci.yml/badge.svg" alt="CI status"></a>
   <a href="https://github.com/kosumic/whip/actions/workflows/codeql.yml"><img src="https://github.com/kosumic/whip/actions/workflows/codeql.yml/badge.svg" alt="CodeQL status"></a>
   <a href="https://expo.dev"><img src="https://img.shields.io/badge/React%20Native%20%2B%20Expo-000020?logo=expo&amp;logoColor=white" alt="Built with React Native and Expo"></a>
-  <a href="#ios"><img src="https://img.shields.io/badge/iOS-unsigned%20build-blue?logo=apple&amp;logoColor=white" alt="Unsigned iOS build available"></a>
+  <a href="https://www.rust-lang.org/"><img src="https://img.shields.io/badge/Rust-1.98.0-000000?logo=rust&amp;logoColor=white" alt="Built with Rust 1.98.0"></a>
 </p>
 
 <p align="center">
-  <a href="https://play.google.com/store/apps/details?id=io.github.kaminarios.whip"><img src="https://play.google.com/intl/en_us/badges/static/images/badges/en_badge_web_generic.png" alt="Get it on Google Play" width="240"></a><br>
+  <a href="https://apps.apple.com/us/app/whip-herd/id6808226150"><img src="https://tools.applemediaservices.com/api/badges/download-on-the-app-store/black/en-us?size=250x83" alt="Download Whip Herd on the App Store" width="190" align="middle"></a>
+  <a href="https://play.google.com/store/apps/details?id=io.github.kaminarios.whip"><img src="https://play.google.com/intl/en_us/badges/static/images/badges/en_badge_web_generic.png" alt="Get it on Google Play" width="240" align="middle"></a><br>
   Early Access: <a href="https://groups.google.com/g/whip-community">join the Whip Community</a>, wait a moment for access to propagate, then use the Google Play link above.
 </p>
 
@@ -174,7 +175,9 @@ Whip supports Android 7.0 and newer (`minSdk 24`). The current direct APK distri
 
 ### iOS
 
-Whip supports iOS 16.4 and newer on ARM64 devices. CI compiles a thin unsigned device app and uploads `whip-ios-unsigned-compile-only.app.zip` as a short-lived GitHub Actions artifact. It is compile validation only: it is not attached to tagged GitHub releases, distributed through the App Store or TestFlight, signed, or directly installable. For a locally signed device build, follow the development instructions below.
+Install [Whip Herd from the App Store](https://apps.apple.com/us/app/whip-herd/id6808226150) on an iPhone or iPad running iOS or iPadOS 16.4 or newer. Make your host reachable over SSH, preferably through a Tailnet you trust.
+
+CI also compiles a thin unsigned device app and uploads `whip-ios-unsigned-compile-only.app.zip` as a short-lived GitHub Actions artifact for compile validation. That artifact is not signed or directly installable. For a locally signed device build, follow the development instructions below.
 
 ## Connect your first host
 
@@ -545,7 +548,7 @@ TurboModule; there is no legacy or second SSH native fallback.
 - Follow the [Code of Conduct](CODE_OF_CONDUCT.md).
 - Review the [roadmap](ROADMAP.md) for current priorities.
 
-Feedback is especially useful around Android and iOS device compatibility, real-world Herdr workflows, terminal ergonomics, safe SSH trust UX, and the path from the current unsigned iOS build to a signed beta.
+Feedback is especially useful around Android and iOS device compatibility, real-world Herdr workflows, terminal ergonomics, and safe SSH trust UX.
 
 ## Credits
 
