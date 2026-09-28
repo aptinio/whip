@@ -82,6 +82,8 @@ async function runtime(asset: string, userAgent: string) {
     blur: jest.fn(),
     attachCustomKeyEventHandler: jest.fn(),
     onData: jest.fn(),
+    onCursorMove: jest.fn(),
+    onRender: jest.fn(),
     onResize: (listener: typeof resizeListener) => { resizeListener = listener; },
     onScroll: jest.fn(),
     resize: jest.fn((cols: number, rows: number) => {
@@ -102,6 +104,8 @@ async function runtime(asset: string, userAgent: string) {
     navigator: { userAgent },
     performance: { now: () => 0 },
     setTimeout, clearTimeout,
+    requestAnimationFrame: jest.fn(() => 1),
+    cancelAnimationFrame: jest.fn(),
     Terminal: jest.fn(() => terminal),
     FitAddon: { FitAddon: jest.fn(() => fit) },
     ImageAddon: { ImageAddon: jest.fn(() => ({})) },

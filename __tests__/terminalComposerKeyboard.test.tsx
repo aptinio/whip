@@ -10,7 +10,7 @@ import {
 import { TerminalScreen } from '../src/components/TerminalScreen';
 import { AgentChatView } from '../src/components/AgentChatView';
 import { emptyTranscript } from '../src/agentChat';
-import { terminalControlBarInset } from '../src/lib/floatingChrome';
+import { TERMINAL_CURSOR_CLEARANCE, terminalControlBarInset } from '../src/lib/floatingChrome';
 import { setTerminalKeyboardOverlay } from '../src/services/terminalSoftInput';
 
 jest.mock('react-native-css-interop/jsx-runtime', () =>
@@ -496,25 +496,30 @@ describe.each(['android', 'ios'] as const)(
       expect(terminalHandle.fit).not.toHaveBeenCalled();
     });
 
-    test('the direct keyboard slides the same canvas until native hide completes without fitting', async () => {
+    test('the direct keyboard shifts the canvas to keep the reported cursor visible without fitting', async () => {
       mount();
       const terminal = ui('TerminalRendererHost');
       expect(terminal.parent?.props.collapsable).toBe(false);
       await press('enableKeyboard');
       emitKeyboard(true);
+      expect(ui('TerminalRendererHost').parent?.props.style).toBeUndefined();
+      const cursorBottom = 700;
+      act(() => { void ui('TerminalRendererHost').props.onCursorGeometry(target, cursorBottom, screenHeight); });
+      const cursorShift = cursorBottom + TERMINAL_CURSOR_CLEARANCE
+        - (screenHeight - keyboardHeight - controlBarHeight);
       expect(ui('TerminalRendererHost').parent?.props.style).toEqual({
-        transform: [{ translateY: -keyboardHeight }],
+        transform: [{ translateY: -cursorShift }],
       });
       // Repeated show events measure the stationary outer viewport.
       emitKeyboard(true);
       expect(ui('TerminalRendererHost').parent?.props.style).toEqual({
-        transform: [{ translateY: -keyboardHeight }],
+        transform: [{ translateY: -cursorShift }],
       });
       act(() => jest.advanceTimersByTime(100));
       expect(terminalHandle.fit).not.toHaveBeenCalled();
       await press('disableKeyboard');
       expect(ui('TerminalRendererHost').parent?.props.style).toEqual({
-        transform: [{ translateY: -keyboardHeight }],
+        transform: [{ translateY: -cursorShift }],
       });
       emitKeyboard(false);
       expect(ui('TerminalRendererHost').parent?.props.style).toBeUndefined();
