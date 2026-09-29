@@ -133,10 +133,9 @@ export function HerdScreen({
   const { bottom } = useSafeAreaInsets();
   const resolvedHostId = selectedHostId;
   const showHostRail = sessions.length > 1 || sessions.some(session => session.status !== 'ready');
-  const scopedQueues = resolvedHostId
-    ? queues.filter(queue => queue.id === resolvedHostId)
-    : queues;
-  const selectedQueue = resolvedHostId ? scopedQueues[0] : undefined;
+  const selectedQueue = resolvedHostId
+    ? queues.find(queue => queue.id === resolvedHostId)
+    : undefined;
   const selectedWorkspaceId = workspaceFilterId;
   const selectedWorkspace = selectedQueue?.workspaces.find(
     workspace => workspace.workspace_id === selectedWorkspaceId,
