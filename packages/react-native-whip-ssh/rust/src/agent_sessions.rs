@@ -1750,6 +1750,7 @@ fn parse_metadata(output: &str) -> Result<(String, u64), AgentSessionError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fmt::Write as _;
 
     const SESSION: &str = "11111111-1111-4111-8111-111111111111";
 
@@ -1768,8 +1769,10 @@ mod tests {
             serde_json::json!({"type":"event_msg","payload":{"type":"user_message","message":"hello"}}),
         ]
         .into_iter()
-        .map(|line| format!("{line}\n"))
-        .collect::<String>();
+        .fold(String::new(), |mut lines, line| {
+            writeln!(lines, "{line}").unwrap();
+            lines
+        });
         let mut codex = CodexSessionCore::new(SESSION);
         let source = codex.bind_source("/rollout".into(), "1:2".into(), codex_lines.len() as u64);
         codex
@@ -1965,10 +1968,10 @@ mod tests {
         let context = NEXT_STREAM_CONTEXT.fetch_add(1, Ordering::Relaxed);
         let chunk = format!(
             "{{\"type\":\"ignored\",\"data\":\"{}\"}}\n",
-            "x".repeat(CODEX_CHECKPOINT_BYTES as usize)
+            "x".repeat(usize::try_from(CODEX_CHECKPOINT_BYTES).unwrap())
         )
         .into_bytes();
-        {
+        let stream_context = {
             let mut state = manager.inner.state.lock();
             let session = state.sessions.get_mut(&binding.transcript_key).unwrap();
             let AgentSessionCore::Codex(core) = &mut session.core else {
@@ -1976,16 +1979,16 @@ mod tests {
             };
             let source =
                 core.bind_source("/rollout".into(), "1:2".into(), (chunk.len() * 3) as u64);
-            streams().write().insert(
-                context,
-                StreamContext {
-                    manager: Arc::downgrade(&manager.inner),
-                    session_key: binding.transcript_key.clone(),
-                    source_generation: source.source_generation,
-                    operation_epoch: session.operation_epoch,
-                },
-            );
-        }
+            let stream_context = StreamContext {
+                manager: Arc::downgrade(&manager.inner),
+                session_key: binding.transcript_key.clone(),
+                source_generation: source.source_generation,
+                operation_epoch: session.operation_epoch,
+            };
+            drop(state);
+            stream_context
+        };
+        streams().write().insert(context, stream_context);
 
         stream_data(context, chunk.clone());
         stream_data(context, chunk.clone());
