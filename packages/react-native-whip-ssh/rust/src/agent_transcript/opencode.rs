@@ -9,13 +9,27 @@ use super::history_gate::InitialHistoryGate;
 use super::model::*;
 use super::projection::*;
 
+mod v2;
+#[cfg(test)]
+mod v2_tests;
+pub(crate) use v2::{OpenCodeV2Page, OpenCodeV2Snapshot};
+
 const OPENCODE_CACHE_SCHEMA_VERSION: u32 = 3;
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) enum OpenCodeProtocol {
+    #[default]
+    V1,
+    V2,
+}
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 struct CachedOpenCodeSession {
     schema_version: u32,
     session_id: String,
     cursor: u64,
+    #[serde(default)]
+    protocol: OpenCodeProtocol,
     transcript: AgentTranscriptState,
 }
 
@@ -57,6 +71,7 @@ struct CachedOpenCodeSessionRef<'a> {
     schema_version: u32,
     session_id: &'a str,
     cursor: u64,
+    protocol: OpenCodeProtocol,
     transcript: AgentTranscriptStateRef<'a>,
 }
 
@@ -64,6 +79,8 @@ struct CachedOpenCodeSessionRef<'a> {
 pub enum OpenCodeTranscriptError {
     #[error("OpenCode returned an invalid session export")]
     InvalidExport,
+    #[error("OpenCode returned an invalid v2 session snapshot")]
+    InvalidSnapshot,
     #[error("OpenCode returned an invalid event cursor")]
     InvalidCursor,
     #[error("OpenCode returned invalid session events")]
@@ -80,6 +97,7 @@ pub enum OpenCodeTranscriptError {
 enum OpenCodeMutation {
     Info(AgentTranscriptInfo),
     Message(AgentTranscriptMessage),
+    ReplaceMessage(AgentTranscriptMessage),
     RemoveMessage(String),
     Part {
         message_id: String,
@@ -109,6 +127,7 @@ fn same_open_code_nonstructural_message_metadata(
 #[derive(Clone, Debug)]
 pub struct OpenCodeSessionCore {
     session_id: String,
+    protocol: OpenCodeProtocol,
     source_generation: u64,
     cursor: Option<u64>,
     committed_cursor: Option<u64>,
@@ -134,6 +153,7 @@ impl OpenCodeSessionCore {
                 updated_at_ms: None,
             }),
             session_id,
+            protocol: OpenCodeProtocol::V1,
             source_generation: 0,
             cursor: None,
             committed_cursor: None,
@@ -149,6 +169,17 @@ impl OpenCodeSessionCore {
 
     pub fn source_generation(&self) -> u64 {
         self.source_generation
+    }
+
+    pub(crate) fn set_protocol(&mut self, protocol: OpenCodeProtocol) {
+        if self.protocol != protocol {
+            self.protocol = protocol;
+            // V1 database sequences and V2 snapshot revisions are different
+            // namespaces. Preserve visible history, but revalidate remotely.
+            self.cursor = None;
+            self.committed_cursor = None;
+            self.history_gate.reset();
+        }
     }
 
     pub fn begin_sync_generation(&mut self) -> u64 {
@@ -274,6 +305,7 @@ impl OpenCodeSessionCore {
             return Err(AgentCacheError::SessionMismatch);
         }
         self.cursor = Some(cached.cursor);
+        self.protocol = cached.protocol;
         self.committed_cursor = Some(cached.cursor);
         self.info = cached.transcript.info;
         self.messages = cached.transcript.messages;
@@ -296,6 +328,7 @@ impl OpenCodeSessionCore {
             schema_version: OPENCODE_CACHE_SCHEMA_VERSION,
             session_id: &self.session_id,
             cursor,
+            protocol: self.protocol,
             transcript: AgentTranscriptStateRef {
                 session_id: &self.session_id,
                 agent: AgentTranscriptKind::OpenCode,
@@ -480,6 +513,7 @@ impl OpenCodeSessionCore {
         let mut affected_turns = Vec::new();
         let mut structural = false;
         for mutation in plan {
+            let replace_parts = matches!(&mutation, OpenCodeMutation::ReplaceMessage(_));
             match mutation {
                 OpenCodeMutation::Info(info) => {
                     if self.info.as_ref() != Some(&info) {
@@ -487,7 +521,7 @@ impl OpenCodeSessionCore {
                         deltas.push(AgentTranscriptDelta::InfoChanged { info: Some(info) });
                     }
                 }
-                OpenCodeMutation::Message(message) => {
+                OpenCodeMutation::Message(message) | OpenCodeMutation::ReplaceMessage(message) => {
                     if let Some(index) = self.message_indexes.get(&message.id).copied() {
                         let current = &mut self.messages[index];
                         debug_assert_eq!(current.id, message.id);
@@ -495,6 +529,7 @@ impl OpenCodeSessionCore {
                             current.role != message.role || current.parent_id != message.parent_id;
                         if !structural_changed
                             && same_open_code_nonstructural_message_metadata(current, &message)
+                            && (!replace_parts || current.parts == message.parts)
                         {
                             continue;
                         }
@@ -506,6 +541,9 @@ impl OpenCodeSessionCore {
                         current.completed_at_ms = message.completed_at_ms;
                         current.error = message.error;
                         current.diffs = message.diffs;
+                        if replace_parts {
+                            current.parts = message.parts;
+                        }
                         let message = current.clone();
                         if let Some(turn) = self.message_turns.get(&message.id).copied() {
                             affected_turns.push(turn);

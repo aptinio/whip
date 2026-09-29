@@ -11,7 +11,8 @@ use parking_lot::{Mutex, RwLock};
 use crate::agent_transcript::{
     AgentCacheError, AgentTranscriptDelta, AgentTranscriptKind, AgentTranscriptState,
     AgentTranscriptStatus, AgentTranscriptUpdate, AgentTurnStatus, ClaudeSessionCore,
-    CodexSessionCore, FileTranscriptCore, OpenCodeSessionCore, parse_open_code_cursor,
+    CodexSessionCore, FileTranscriptCore, OpenCodeProtocol, OpenCodeSessionCore, OpenCodeV2Page,
+    OpenCodeV2Snapshot, parse_open_code_cursor,
 };
 use crate::herdr_connection::{ConnectionExecStream, HerdrConnection};
 
@@ -20,6 +21,7 @@ const FILE_SOURCE_POLL_DELAY: Duration = Duration::from_secs(2);
 const OPENCODE_POLL_DELAY: Duration = Duration::from_millis(1_200);
 const FILE_CHECKPOINT_BYTES: u64 = 256 * 1024;
 const OPENCODE_CHECKPOINT_EVENTS: u64 = 64;
+const OPENCODE_V2_PAGE_SIZE: usize = 200;
 static NEXT_STREAM_CONTEXT: AtomicU64 = AtomicU64::new(1);
 static NEXT_OPERATION_EPOCH: AtomicU64 = AtomicU64::new(1);
 static STREAMS: OnceLock<RwLock<HashMap<u64, StreamContext>>> = OnceLock::new();
@@ -204,6 +206,13 @@ struct SessionRuntime {
     started: bool,
     closed: bool,
     explicit_restart_pending: bool,
+    opencode_protocol: Option<OpenCodeProtocol>,
+}
+
+enum OpenCodeSync<'a> {
+    Export { cursor: u64, payload: &'a str },
+    Events { cursor: u64, payload: &'a str },
+    Snapshot(OpenCodeV2Snapshot),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -537,6 +546,7 @@ impl AgentSessionManager {
                     started: false,
                     closed: false,
                     explicit_restart_pending: false,
+                    opencode_protocol: None,
                 }
             });
             session.terminals.insert(identity.terminal_id.clone());
@@ -882,6 +892,7 @@ impl AgentSessionManager {
             session.operation_epoch = NEXT_OPERATION_EPOCH.fetch_add(1, Ordering::Relaxed);
             session.retry_running = false;
             session.pending_cache_offset = None;
+            session.opencode_protocol = None;
             if let Some(context) = session.stream_context.take() {
                 streams().write().remove(&context);
             }
@@ -1129,6 +1140,48 @@ impl AgentSessionManager {
     }
 
     async fn sync_opencode(&self, key: String, operation_epoch: u64, session_id: String) {
+        let protocol = match self.resolve_opencode_protocol(&key, operation_epoch).await {
+            Ok(protocol) => protocol,
+            Err(error) => {
+                self.fail_session(
+                    key,
+                    operation_epoch,
+                    error.to_string(),
+                    SessionFailureKind::Transient,
+                );
+                return;
+            }
+        };
+        if protocol == OpenCodeProtocol::V2 {
+            match self
+                .read_opencode_v2_snapshot(&key, operation_epoch, &session_id)
+                .await
+            {
+                Ok(snapshot) => {
+                    if let Err(error) = self.finish_opencode_sync(
+                        &key,
+                        operation_epoch,
+                        OpenCodeSync::Snapshot(snapshot),
+                    ) {
+                        self.fail_session(
+                            key,
+                            operation_epoch,
+                            error,
+                            SessionFailureKind::Transient,
+                        );
+                        return;
+                    }
+                    self.schedule_opencode_poll(key, operation_epoch, session_id);
+                }
+                Err(error) => self.fail_session(
+                    key,
+                    operation_epoch,
+                    error.to_string(),
+                    SessionFailureKind::Transient,
+                ),
+            }
+            return;
+        }
         let connection = self.inner.connection.clone();
         let cursor_output = match execute(
             &connection,
@@ -1207,8 +1260,18 @@ impl AgentSessionManager {
                 return;
             }
         };
-        let applied =
-            self.finish_opencode_sync(&key, operation_epoch, remote_cursor, &payload, needs_full);
+        let sync = if needs_full {
+            OpenCodeSync::Export {
+                cursor: remote_cursor,
+                payload: &payload,
+            }
+        } else {
+            OpenCodeSync::Events {
+                cursor: remote_cursor,
+                payload: &payload,
+            }
+        };
+        let applied = self.finish_opencode_sync(&key, operation_epoch, sync);
         if let Err(error) = applied {
             if needs_full {
                 self.fail_session(key, operation_epoch, error, SessionFailureKind::Transient);
@@ -1224,9 +1287,10 @@ impl AgentSessionManager {
                     if let Err(export_error) = self.finish_opencode_sync(
                         &key,
                         operation_epoch,
-                        remote_cursor,
-                        &export,
-                        true,
+                        OpenCodeSync::Export {
+                            cursor: remote_cursor,
+                            payload: &export,
+                        },
                     ) {
                         self.fail_session(
                             key,
@@ -1251,13 +1315,62 @@ impl AgentSessionManager {
         self.schedule_opencode_poll(key, operation_epoch, session_id);
     }
 
+    async fn resolve_opencode_protocol(
+        &self,
+        key: &str,
+        operation_epoch: u64,
+    ) -> Result<OpenCodeProtocol, AgentSessionError> {
+        {
+            let mut state = self.inner.state.lock();
+            let session = current_session_mut(&mut state, key, operation_epoch)
+                .ok_or_else(|| AgentSessionError::StaleGeneration(key.to_owned()))?;
+            let protocol = session.opencode_protocol;
+            drop(state);
+            if let Some(protocol) = protocol {
+                return Ok(protocol);
+            }
+        }
+        let version = execute(
+            &self.inner.connection,
+            opencode_login_command("opencode --version"),
+        )
+        .await?;
+        let protocol = parse_opencode_protocol(&version)?;
+        let mut state = self.inner.state.lock();
+        let session = current_session_mut(&mut state, key, operation_epoch)
+            .ok_or_else(|| AgentSessionError::StaleGeneration(key.to_owned()))?;
+        if let AgentSessionCore::OpenCode(core) = &mut session.core {
+            core.set_protocol(protocol);
+        }
+        session.opencode_protocol = Some(protocol);
+        drop(state);
+        Ok(protocol)
+    }
+
+    async fn read_opencode_v2_snapshot(
+        &self,
+        key: &str,
+        operation_epoch: u64,
+        session_id: &str,
+    ) -> Result<OpenCodeV2Snapshot, AgentSessionError> {
+        fetch_opencode_v2_snapshot(session_id, |command| async move {
+            // Don't keep paging a transcript after the user switches sessions.
+            {
+                let mut state = self.inner.state.lock();
+                if current_session_mut(&mut state, key, operation_epoch).is_none() {
+                    return Err(AgentSessionError::StaleGeneration(key.to_owned()));
+                }
+            }
+            execute(&self.inner.connection, opencode_login_command(&command)).await
+        })
+        .await
+    }
+
     fn finish_opencode_sync(
         &self,
         key: &str,
         operation_epoch: u64,
-        remote_cursor: u64,
-        payload: &str,
-        full: bool,
+        sync: OpenCodeSync<'_>,
     ) -> Result<(), String> {
         let emission = {
             let mut state = self.inner.state.lock();
@@ -1267,15 +1380,21 @@ impl AgentSessionManager {
                 let AgentSessionCore::OpenCode(core) = &mut session.core else {
                     return Err("OpenCode transcript was rebound to another agent".to_owned());
                 };
-                let transcript_update = if full {
-                    core.bootstrap(remote_cursor, payload).map(|changed| {
-                        changed.then(|| AgentTranscriptUpdate {
-                            revision: core.revision(),
-                            deltas: Vec::new(),
+                let full = matches!(&sync, OpenCodeSync::Export { .. })
+                    || (matches!(&sync, OpenCodeSync::Snapshot(_)) && core.cursor().is_none());
+                let transcript_update = match sync {
+                    OpenCodeSync::Export { cursor, payload } => {
+                        core.bootstrap(cursor, payload).map(|changed| {
+                            changed.then(|| AgentTranscriptUpdate {
+                                revision: core.revision(),
+                                deltas: Vec::new(),
+                            })
                         })
-                    })
-                } else {
-                    core.apply_events_incremental(remote_cursor, payload)
+                    }
+                    OpenCodeSync::Events { cursor, payload } => {
+                        core.apply_events_incremental(cursor, payload)
+                    }
+                    OpenCodeSync::Snapshot(snapshot) => core.apply_v2_snapshot(snapshot),
                 }
                 .map_err(|error| error.to_string())?;
                 let mut update = core.finish_live_update(transcript_update);
@@ -1284,7 +1403,7 @@ impl AgentSessionManager {
                         state: core.state(),
                     }];
                 }
-                let cursor = core.cursor().unwrap_or(remote_cursor);
+                let cursor = core.cursor().unwrap_or_default();
                 let checkpoint_base = session.pending_cache_offset.or(core.committed_cursor());
                 let checkpoint_due = full
                     || update.as_ref().is_some_and(completes_turn)
@@ -1691,6 +1810,89 @@ fn opencode_export_command(session_id: &str) -> String {
     format!("opencode export {}", shell_quote(session_id))
 }
 
+fn parse_opencode_protocol(version: &str) -> Result<OpenCodeProtocol, AgentSessionError> {
+    let version = version.trim().strip_prefix('v').unwrap_or(version.trim());
+    match version.split_once('.').map(|(major, _)| major) {
+        Some("1") => Ok(OpenCodeProtocol::V1),
+        Some("2") => Ok(OpenCodeProtocol::V2),
+        _ => Err(AgentSessionError::SourceUnavailable(format!(
+            "Unsupported OpenCode version: {version}"
+        ))),
+    }
+}
+
+fn opencode_v2_api_command(path: &str) -> String {
+    // The CLI resolves the local service and its authentication itself. No
+    // service passwords, HTTP ports, or additional remote runtimes are needed.
+    format!("opencode api GET {}", shell_quote(path))
+}
+
+fn opencode_v2_messages_command(session_id: &str, cursor: Option<&str>) -> String {
+    let mut query = url::form_urlencoded::Serializer::new(String::new());
+    query.append_pair("limit", &OPENCODE_V2_PAGE_SIZE.to_string());
+    if let Some(cursor) = cursor {
+        query.append_pair("cursor", cursor);
+    } else {
+        query.append_pair("order", "asc");
+    }
+    opencode_v2_api_command(&format!(
+        "/api/session/{session_id}/message?{}",
+        query.finish()
+    ))
+}
+
+async fn fetch_opencode_v2_snapshot<F, Fut>(
+    session_id: &str,
+    mut execute: F,
+) -> Result<OpenCodeV2Snapshot, AgentSessionError>
+where
+    F: FnMut(String) -> Fut,
+    Fut: std::future::Future<Output = Result<String, AgentSessionError>>,
+{
+    #[derive(serde::Deserialize)]
+    struct SessionResponse {
+        data: serde_json::Value,
+    }
+    let output = execute(opencode_v2_api_command(&format!(
+        "/api/session/{session_id}"
+    )))
+    .await?;
+    let info = serde_json::from_str::<SessionResponse>(&output)
+        .map_err(|error| {
+            AgentSessionError::ReadFailed(format!("Invalid OpenCode v2 session: {error}"))
+        })?
+        .data;
+    if info.get("id").and_then(serde_json::Value::as_str) != Some(session_id) {
+        return Err(AgentSessionError::ReadFailed(
+            "OpenCode v2 returned a different session".to_owned(),
+        ));
+    }
+    let mut snapshot = OpenCodeV2Snapshot {
+        info,
+        messages: Vec::new(),
+    };
+    let mut cursor = None;
+    let mut seen = HashSet::new();
+    loop {
+        let output = execute(opencode_v2_messages_command(session_id, cursor.as_deref())).await?;
+        let page = serde_json::from_str::<OpenCodeV2Page>(&output).map_err(|error| {
+            AgentSessionError::ReadFailed(format!("Invalid OpenCode v2 messages: {error}"))
+        })?;
+        if page.data.is_empty() {
+            break;
+        }
+        snapshot.messages.extend(page.data);
+        let Some(next) = page.cursor.next else { break };
+        if next.is_empty() || !seen.insert(next.clone()) {
+            return Err(AgentSessionError::ReadFailed(
+                "OpenCode v2 returned a repeated pagination cursor".to_owned(),
+            ));
+        }
+        cursor = Some(next);
+    }
+    Ok(snapshot)
+}
+
 fn sqlite_text_literal(value: &str) -> String {
     let mut literal = String::from("char(");
     for (index, byte) in value.bytes().enumerate() {
@@ -1923,6 +2125,138 @@ mod tests {
             1,
             HerdrConnection::new(runtime_id.to_owned(), String::new(), None, None),
         )
+    }
+
+    #[test]
+    fn opencode_versions_select_separate_transports() {
+        for version in ["1.18.31\n", "v1.2.0"] {
+            assert_eq!(
+                parse_opencode_protocol(version).unwrap(),
+                OpenCodeProtocol::V1
+            );
+        }
+        for version in ["2.0.19\n", "v2.0.0-beta.1"] {
+            assert_eq!(
+                parse_opencode_protocol(version).unwrap(),
+                OpenCodeProtocol::V2
+            );
+        }
+        assert!(parse_opencode_protocol("3.0.0").is_err());
+        assert!(parse_opencode_protocol("command not found").is_err());
+    }
+
+    #[test]
+    fn opencode_v2_pagination_reads_all_pages_and_encodes_opaque_cursors() {
+        let cursor = "opaque/+?&'$(false)";
+        let mut responses = [
+            serde_json::json!({ "data": { "id": "ses_v2" } }),
+            serde_json::json!({ "data": [{ "id": "msg_one", "type": "user", "text": "hello" }], "cursor": { "next": cursor } }),
+            serde_json::json!({ "data": [{ "id": "msg_two", "type": "assistant", "content": [] }], "cursor": { "next": "last" } }),
+            serde_json::json!({ "data": [], "cursor": {} }),
+        ].into_iter();
+        let mut commands = Vec::new();
+        let snapshot =
+            futures::executor::block_on(fetch_opencode_v2_snapshot("ses_v2", |command| {
+                commands.push(command);
+                std::future::ready(Ok(responses.next().unwrap().to_string()))
+            }))
+            .unwrap();
+        assert_eq!(snapshot.messages.len(), 2);
+        assert_eq!(commands.len(), 4);
+        let request = |command: &str| {
+            let argv = shlex::split(command).unwrap();
+            assert_eq!(&argv[..3], ["opencode", "api", "GET"]);
+            assert_eq!(argv.len(), 4);
+            url::Url::parse(&format!("http://localhost{}", argv[3])).unwrap()
+        };
+        let first = request(&commands[1]);
+        assert_eq!(first.path(), "/api/session/ses_v2/message");
+        assert_eq!(
+            first
+                .query_pairs()
+                .collect::<HashMap<_, _>>()
+                .get("order")
+                .unwrap(),
+            "asc"
+        );
+        let second = request(&commands[2]);
+        let query = second.query_pairs().collect::<HashMap<_, _>>();
+        assert_eq!(query.get("cursor").unwrap(), cursor);
+        assert!(!query.contains_key("order"));
+        assert_eq!(query.get("limit").unwrap(), "200");
+    }
+
+    #[test]
+    fn opencode_v2_pagination_rejects_cycles_and_incomplete_reads() {
+        for fail_read in [false, true] {
+            let mut calls = 0;
+            let result = futures::executor::block_on(fetch_opencode_v2_snapshot("ses_v2", |_| {
+                calls += 1;
+                std::future::ready(if calls == 1 {
+                    Ok(serde_json::json!({ "data": { "id": "ses_v2" } }).to_string())
+                } else if fail_read && calls == 3 {
+                    Err(AgentSessionError::ReadFailed("SSH disconnected".into()))
+                } else {
+                    Ok(serde_json::json!({ "data": [{ "id": "msg_one" }], "cursor": { "next": "same" } }).to_string())
+                })
+            }));
+            assert!(result.is_err());
+            assert_eq!(calls, 3);
+        }
+    }
+
+    #[test]
+    fn opencode_v2_sync_becomes_live_and_checkpoints_without_rewriting_unchanged_history() {
+        let manager = test_manager("v2-sync");
+        manager.inner.state.lock().connected = true;
+        let binding = manager
+            .bind_opencode("terminal".into(), "ses_v2".into())
+            .unwrap();
+        let epoch = manager.inner.state.lock().sessions[&binding.transcript_key].operation_epoch;
+        let snapshot = || OpenCodeV2Snapshot {
+            info: serde_json::json!({ "id": "ses_v2" }),
+            messages: vec![
+                serde_json::json!({ "id": "msg_user", "type": "user", "text": "Hello" }),
+            ],
+        };
+        manager
+            .finish_opencode_sync(
+                &binding.transcript_key,
+                epoch,
+                OpenCodeSync::Snapshot(snapshot()),
+            )
+            .unwrap();
+        let state = manager.state(&binding.transcript_key).unwrap();
+        assert_eq!(state.status, AgentTranscriptStatus::Live);
+        assert_eq!(state.messages.len(), 1);
+        let token = manager
+            .inner
+            .state
+            .lock()
+            .checkpoints
+            .keys()
+            .next()
+            .unwrap()
+            .clone();
+        assert!(manager.confirm_cache(&token));
+        manager
+            .finish_opencode_sync(
+                &binding.transcript_key,
+                epoch,
+                OpenCodeSync::Snapshot(snapshot()),
+            )
+            .unwrap();
+        assert_eq!(manager.state(&binding.transcript_key).unwrap(), state);
+        assert!(manager.inner.state.lock().checkpoints.is_empty());
+        assert!(
+            manager
+                .finish_opencode_sync(
+                    &binding.transcript_key,
+                    epoch + 1,
+                    OpenCodeSync::Snapshot(snapshot())
+                )
+                .is_err()
+        );
     }
 
     #[test]
