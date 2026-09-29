@@ -2,6 +2,10 @@ jest.mock('@react-native-async-storage/async-storage', () => ({
   __esModule: true,
   default: { setItem: jest.fn() },
 }));
+jest.mock('expo-constants', () => ({
+  __esModule: true,
+  default: { expoConfig: null },
+}));
 jest.mock('expo-localization', () => ({ useLocales: () => [] }));
 jest.mock('../src/i18n', () => ({
   __esModule: true,
