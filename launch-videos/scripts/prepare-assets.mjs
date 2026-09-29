@@ -49,6 +49,8 @@ const files = [
   ['launch-videos/source-assets/models/iphone-17-pro/iphone-17-pro.glb', 'models/iphone-17-pro/iphone-17-pro.glb'],
   ['launch-videos/source-assets/models/iphone-17-pro/license.txt', 'models/iphone-17-pro/license.txt'],
   ['launch-videos/source-assets/ios/hosts.mp4', 'ios/hosts.mp4'],
+  ['launch-videos/source-assets/ios/notification.mp4', 'ios/notification.mp4'],
+  ['launch-videos/source-assets/ios/notification-detail.mp4', 'ios/notification-detail.mp4'],
   ['launch-videos/source-assets/ios/herd-status.mp4', 'ios/herd-status.mp4'],
   ['launch-videos/source-assets/ios/herd-final.mp4', 'ios/herd-final.mp4'],
   ['launch-videos/source-assets/ios/terminal.mp4', 'ios/terminal.mp4'],

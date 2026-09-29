@@ -73,13 +73,17 @@
           <span data-hf-id="hf-3v2x">Real-time alerts</span>
           <h2 data-hf-id="hf-xceu">Know the moment.<br data-hf-id="hf-rsrt">Step in anywhere.</h2>
         </div>
-        <img data-hf-id="hf-kxc4" class="real-notification" src="./assets/screens/whip-notification-card-live.png" alt="Real Whip Android notification showing a finished Codex agent">
         <div data-hf-id="hf-qg3l" class="handoff-card">
           <div data-hf-id="hf-1ddq" class="handoff-client"><img data-hf-id="hf-hviv" src="./assets/herdr/logo-handoff.png" alt="Herdr"><span data-hf-id="hf-dutj">Desktop</span></div>
           <strong data-hf-id="hf-dkmh">Focus moved</strong>
           <div data-hf-id="hf-q9k2" class="handoff-client"><img data-hf-id="hf-kt3g" src="./assets/icon-handoff.png" alt="Whip"><span data-hf-id="hf-t3uj">Phone</span></div>
         </div>
       </section>
+
+      <!-- Native iOS notification, staged with simctl push; recorded from the real app. -->
+      <div data-hf-id="hf-64w1" class="real-notification" aria-label="Native iOS notification demo">
+        <video data-hf-id="hf-7dlg" id="notification-detail" class="clip" src="./assets/ios/notification-detail.mp4" data-start="16.2" data-duration="3.52" data-track-index="9" muted playsinline></video>
+      </div>
 
       <section data-hf-id="hf-chat0" id="composer" class="clip shot shot-composer" data-start="22" data-duration="4.5" data-track-index="5" data-layout-allow-overflow="">
         <div data-hf-id="hf-chat1" class="composer-copy">
@@ -124,7 +128,8 @@
       </section>
 
       <video data-hf-id="hf-ng33" id="phone-hosts" class="clip phone-source" src="./assets/ios/hosts.mp4" data-start="3.4" data-duration="4.8" data-track-index="8" data-layout-ignore="" muted playsinline></video>
-      <video data-hf-id="hf-atg4" id="phone-herd" class="clip phone-source" src="./assets/ios/herd-status.mp4" data-start="8.2" data-duration="11.15" data-track-index="8" data-layout-ignore="" muted playsinline></video>
+      <video data-hf-id="hf-atg4" id="phone-herd" class="clip phone-source" src="./assets/ios/herd-status.mp4" data-start="8.2" data-duration="8" data-track-index="8" data-layout-ignore="" muted playsinline></video>
+      <video data-hf-id="hf-s6k4" id="phone-notification" class="clip phone-source" src="./assets/ios/notification.mp4" data-start="16.2" data-duration="3.15" data-track-index="8" data-layout-ignore="" muted playsinline></video>
       <video data-hf-id="hf-6v3t" id="phone-terminal" class="clip phone-source" src="./assets/ios/terminal.mp4" data-start="19.35" data-duration="2.65" data-track-index="8" data-layout-ignore="" muted playsinline></video>
       <video data-hf-id="hf-chat-video" id="phone-chat" class="clip phone-source" src="./assets/ios/chat-view.mp4" data-start="22" data-duration="4.5" data-track-index="8" data-layout-ignore="" muted playsinline></video>
       <video data-hf-id="hf-kswl" id="phone-files" class="clip phone-source" src="./assets/ios/files.mp4" data-start="26.5" data-duration="1.1" data-track-index="8" data-layout-ignore="" muted playsinline></video>
@@ -275,6 +280,19 @@
       halo.position.set(2.8, .2, -4.5);
       scene.add(halo);
 
+      let latestSeekTime = window.__hfThreeTime || 0;
+      let finishSceneLoading;
+      const sceneReady = new Promise((resolve) => { finishSceneLoading = resolve; });
+      window.addEventListener('hf-seek', (event) => {
+        latestSeekTime = Number(event.detail?.time ?? event.detail) || 0;
+        if (sceneLoaded) {
+          renderAt(latestSeekTime);
+        } else {
+          event.detail?.waitUntil?.(sceneReady.then(() => renderAt(latestSeekTime)));
+        }
+      });
+      let sceneLoaded = false;
+
       const loader = new GLTFLoader();
       const textureLoader = new THREE.TextureLoader();
       const loadModel = (url) => new Promise((resolve, reject) => loader.load(url, resolve, undefined, reject));
@@ -359,7 +377,7 @@
         clone.needsUpdate = true;
         return clone;
       };
-      const phoneVideos = new Map(['hosts', 'herd', 'terminal', 'chat', 'files', 'files-changes', 'files-diff', 'herd-final'].map((name) => {
+      const phoneVideos = new Map(['hosts', 'herd', 'notification', 'terminal', 'chat', 'files', 'files-changes', 'files-diff', 'herd-final'].map((name) => {
         const texture = new THREE.VideoTexture(document.getElementById(`phone-${name}`));
         texture.colorSpace = THREE.SRGBColorSpace;
         texture.minFilter = THREE.LinearFilter;
@@ -468,6 +486,13 @@
         };
         video.addEventListener('seeked', refreshFrame);
         video.addEventListener('loadeddata', refreshFrame);
+        if (video.requestVideoFrameCallback) {
+          const decoded = () => {
+            refreshFrame();
+            video.requestVideoFrameCallback(decoded);
+          };
+          video.requestVideoFrameCallback(decoded);
+        }
       }
 
       const renderAt = (time) => {
@@ -541,7 +566,7 @@
           macRig.visible = false;
           serverRig.visible = false;
           piRig.visible = false;
-          setPhoneScreen(t > 19.35 ? 'terminal' : 'herd');
+          setPhoneScreen(t >= 19.35 ? 'terminal' : 'notification');
           setTransform(phoneRig, [lerp(-2.4, -2.15, p), lerp(.02, -.15, p), lerp(.95, 1.55, p)], [lerp(.02, -.04, p), lerp(-.3, .02, p), lerp(-.045, .018, p)], lerp(.86, 1.02, p));
           setTransform(laptopRig, [lerp(3.8, 3.05, p), lerp(-.7, -.48, p), -1.35], [-.03, lerp(-.56, -.34, p), .02], .78);
           setCamera(mix3([.1, .42, 11.8], [-.15, .24, 9.6], p), mix3([-.55, 0, 0], [-.9, -.05, 0], p), lerp(-.014, .012, p));
@@ -591,8 +616,18 @@
         renderer.render(scene, camera);
       };
 
-      window.addEventListener('hf-seek', (event) => renderAt(event.detail?.time ?? event.detail ?? 0));
-      renderAt(0);
+      // Snapshot extraction may inject its decoded image after hf-seek.
+      // Refresh the texture on image load so repeated seeks cannot show a stale frame.
+      document.addEventListener('load', (event) => {
+        const image = event.target;
+        if (!(image instanceof HTMLImageElement) || !image.classList.contains('__render_frame__')) return;
+        if (image.id !== `__render_frame_phone-${currentScreen}__`) return;
+        phoneVideos.get(currentScreen).needsUpdate = true;
+        renderer.render(scene, camera);
+      }, true);
+      sceneLoaded = true;
+      finishSceneLoading();
+      renderAt(latestSeekTime);
     </script>
   </body>
 </html>
