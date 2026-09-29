@@ -186,6 +186,8 @@
       enter('.phone-badge', 11.42, {x: 120, scale: .82, autoAlpha: 0}, {x: 0, scale: 1, autoAlpha: 1}, .55, 'back.out(1.15)');
       enter('.agent-stack > div', 12.55, {y: 50, scale: .82, autoAlpha: 0}, {y: 0, scale: 1, autoAlpha: 1, stagger: .13}, .48, 'back.out(1.3)');
       tl.to('.sync-copy', {autoAlpha: 0, y: -55, duration: .26, ease: 'power3.in'}, 12.12);
+      tl.to('.agent-stack, .phone-badge', {autoAlpha: 0, duration: .18, ease: 'power2.in'}, 13.22);
+      tl.fromTo('.sync-copy', {autoAlpha: 0, y: -55}, {autoAlpha: 1, y: 0, duration: .4, ease: 'power3.out', immediateRender: false}, 13.4);
 
       enter('.alert-copy span', 16.48, {x: 75, autoAlpha: 0}, {x: 0, autoAlpha: 1}, .44, 'expo.out');
       enter('.alert-copy h2', 16.65, {x: 150, autoAlpha: 0}, {x: 0, autoAlpha: 1}, .72, 'power4.out');
@@ -428,24 +430,23 @@
         camera.rotateZ(roll);
       };
       const featureShots = [
-        {start: 12.5, settle: 13.6, end: 16.2, position: [2.15, .45, 10.7], target: [2.15, 0, 0], fov: 31},
-        {start: 19.35, settle: 20, end: 22, position: [-.65, .3, 13.7], target: [-.65, 0, 0], fov: 31},
-        {start: 22, settle: 22, end: 26.5, position: [1, .35, 11.2], target: [1, 0, 0], fov: 31},
-        {start: 26.5, settle: 26.5, end: 30.5, position: [1.2, .35, 9.5], target: [1.2, 0, 0], fov: 31},
+        {start: 13.4, settle: 13.85, end: 16.2, position: [3.35, .95, 7.15], target: [3.35, .95, 0]},
+        {start: 19.35, settle: 19.85, end: 22, position: [-1.25, -.05, 8.5], target: [-1.25, -.05, 0]},
+        {start: 22, settle: 22.5, end: 26.5, position: [1.05, -.6, 7.4], target: [1.05, -.6, 0]},
+        {start: 26.5, settle: 27, end: 30.5, position: [1.45, .45, 6.8], target: [1.45, .45, 0]},
       ];
       const frameFeature = (time) => {
         const shot = featureShots.find(({start, end}) => time >= start && time < end);
         if (!shot) return;
-        const blend = shot.settle === shot.start ? 1 : smooth((time - shot.start) / (shot.settle - shot.start));
-        const drift = smooth((time - shot.settle) / (shot.end - shot.settle));
         const position = new THREE.Vector3(...shot.position);
-        position.z -= .25 * drift;
-        camera.position.lerp(position, blend);
-        cameraTarget.lerp(new THREE.Vector3(...shot.target), blend);
-        camera.fov = lerp(camera.fov, shot.fov, blend);
-        camera.updateProjectionMatrix();
-        camera.lookAt(cameraTarget);
-        camera.rotateZ(cameraRoll * (1 - blend));
+        position.z *= lerp(1.2, 1, smooth((time - shot.start) / (shot.settle - shot.start)));
+        position.z -= .12 * smooth((time - shot.settle) / (shot.end - shot.settle));
+        setCamera(position, new THREE.Vector3(...shot.target));
+        phoneRig.rotation.set(0, Math.atan2(
+          camera.position.x - phoneRig.position.x,
+          camera.position.z - phoneRig.position.z,
+        ), 0);
+        laptopRig.visible = false;
       };
 
       let currentScreen = 'hosts';
