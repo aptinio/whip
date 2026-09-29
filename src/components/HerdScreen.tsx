@@ -132,6 +132,7 @@ export function HerdScreen({
   const { t } = useTranslation();
   const { bottom } = useSafeAreaInsets();
   const resolvedHostId = selectedHostId;
+  const showHostRail = sessions.length > 1 || sessions.some(session => session.status !== 'ready');
   const scopedQueues = resolvedHostId
     ? queues.filter(queue => queue.id === resolvedHostId)
     : queues;
@@ -362,7 +363,7 @@ export function HerdScreen({
 
   return (
     <View className="flex-1">
-      {sessions.length > 1 ? (
+      {showHostRail ? (
         <LiveSessionRail sessions={sessions} activeHostId={resolvedHostId} onSelect={selectHost} onClose={onCloseHost} onNew={onNewHost} />
       ) : null}
       {selectedQueue ? (
