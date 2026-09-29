@@ -1144,6 +1144,11 @@ export function AgentChatView({
     scrollInteractionRef.current = { ...interaction, lastOffset: offset };
   };
   const beginUserScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+    recordAgentChatDiagnostic('viewport-drag-start', {
+      active,
+      offset: event.nativeEvent.contentOffset.y,
+      stateRevision: state.revision,
+    });
     trackScroll(event);
     const maximumOffset = Math.max(
       0,
@@ -1278,6 +1283,13 @@ export function AgentChatView({
       <View
         testID="agent-chat-viewport"
         className="relative flex-1"
+        onTouchStart={event => {
+          recordAgentChatDiagnostic('viewport-touch-start', {
+            active,
+            target: event.nativeEvent.target,
+            stateRevision: state.revision,
+          });
+        }}
         onLayout={event => {
           initialViewportRef.current.viewportLaidOut = true;
           const current = scrollGeometryRef.current;

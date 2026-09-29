@@ -2,6 +2,9 @@ package io.github.kaminarios.whip
 
 import android.os.Bundle
 import android.view.KeyEvent
+import android.view.MotionEvent
+import java.io.FileDescriptor
+import java.io.PrintWriter
 import com.facebook.react.ReactActivity
 import com.facebook.react.ReactActivityDelegate
 import com.facebook.react.defaults.DefaultNewArchitectureEntryPoint.fabricEnabled
@@ -10,6 +13,18 @@ import expo.modules.ReactActivityDelegateWrapper
 
 class MainActivity : ReactActivity() {
   private val handledVolumeKeys = mutableSetOf<Int>()
+  private val touchDiagnostics = TouchDiagnostics()
+
+  override fun dispatchTouchEvent(event: MotionEvent): Boolean {
+    touchDiagnostics.record(window.decorView, event)
+    return super.dispatchTouchEvent(event)
+  }
+
+  override fun dump(prefix: String, fd: FileDescriptor?, writer: PrintWriter, args: Array<out String>?) {
+    if (!touchDiagnostics.dump(window.decorView, prefix, writer, args)) {
+      super.dump(prefix, fd, writer, args)
+    }
+  }
 
   override fun onCreate(savedInstanceState: Bundle?) {
     setTheme(R.style.AppTheme)
