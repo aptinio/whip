@@ -55,6 +55,8 @@ const files = [
   ['launch-videos/source-assets/ios/herd-final.mp4', 'ios/herd-final.mp4'],
   ['launch-videos/source-assets/ios/terminal.mp4', 'ios/terminal.mp4'],
   ['launch-videos/source-assets/ios/chat-view.mp4', 'ios/chat-view.mp4'],
+  ['launch-videos/source-assets/ios/chat-open-tools.mp4', 'ios/chat-open-tools.mp4'],
+  ['launch-videos/source-assets/ios/chat-compose-send.mp4', 'ios/chat-compose-send.mp4'],
   ['launch-videos/source-assets/ios/files.mp4', 'ios/files.mp4'],
   ['launch-videos/source-assets/ios/files-changes.mp4', 'ios/files-changes.mp4'],
   ['launch-videos/source-assets/ios/files-diff.mp4', 'ios/files-diff.mp4'],
