@@ -1,12 +1,19 @@
 import type { TerminalSession } from '../terminalSessions';
 import type { PaneInfo } from '../types';
 
-export type ChatAgent = 'codex' | 'opencode';
+export type ChatAgent = 'claude' | 'codex' | 'opencode';
 
-const CHAT_AGENT_NAMES: Record<ChatAgent, string> = { codex: 'Codex', opencode: 'OpenCode' };
+const CHAT_AGENT_NAMES: Record<ChatAgent, string> = { claude: 'Claude', codex: 'Codex', opencode: 'OpenCode' };
 
 export function chatAgentDisplayName(agent: ChatAgent): string {
   return CHAT_AGENT_NAMES[agent];
+}
+
+export function isClaudePane(pane: PaneInfo | undefined): boolean {
+  if (!pane) return false;
+  if (pane.agent_session?.agent.toLowerCase() === 'claude') return true;
+  return [pane.agent, pane.display_agent]
+    .some(value => typeof value === 'string' && /(^|[^a-z])claude([^a-z]|$)/i.test(value));
 }
 
 export function isCodexPane(pane: PaneInfo | undefined): boolean {
@@ -27,6 +34,7 @@ export function isOpenCodePane(pane: PaneInfo | undefined): boolean {
 }
 
 export function chatAgentForPane(pane: PaneInfo | undefined): ChatAgent | null {
+  if (isClaudePane(pane)) return 'claude';
   if (isCodexPane(pane)) return 'codex';
   if (isOpenCodePane(pane)) return 'opencode';
   return null;

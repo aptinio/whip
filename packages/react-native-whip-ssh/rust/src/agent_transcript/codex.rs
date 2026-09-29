@@ -13,6 +13,7 @@ use crate::codex::rollout_wire::{
 use crate::codex::{CodexRolloutReducer, RolloutRecord, decode_rollout_record};
 
 use super::history_gate::InitialHistoryGate;
+use super::jsonl::*;
 use super::model::*;
 #[cfg(test)]
 use super::opencode::OpenCodeSessionCore;
@@ -20,153 +21,6 @@ use super::projection::*;
 
 const UNSUPPORTED_HISTORY_MODE: &str = "Unsupported Codex SessionMeta.history_mode";
 const CODEX_CACHE_SCHEMA_VERSION: u32 = 3;
-
-pub const MAX_TRANSCRIPT_LINE_BYTES: usize = 4 * 1024 * 1024;
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct CodexSourceIdentity {
-    pub requested_session_id: String,
-    pub rollout_path: String,
-    pub file_id: String,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct FramedLine {
-    pub raw_line: String,
-    pub end_offset: u64,
-    pub parsed: Result<Value, String>,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
-pub enum TranscriptParseError {
-    #[error("transcript record exceeded {MAX_TRANSCRIPT_LINE_BYTES} bytes")]
-    LineTooLarge,
-    #[error("transcript contained invalid UTF-8")]
-    InvalidUtf8,
-}
-
-/// Incremental byte-oriented JSONL framer. Its committed cursor never includes
-/// an incomplete or malformed physical line.
-#[derive(Clone, Debug, Default)]
-pub struct TranscriptJsonlFramer {
-    buffer: Vec<u8>,
-    received_offset: u64,
-    committable_offset: u64,
-    discarding_oversized_line: bool,
-}
-
-impl TranscriptJsonlFramer {
-    pub fn with_offset(offset: u64) -> Self {
-        Self {
-            buffer: Vec::new(),
-            received_offset: offset,
-            committable_offset: offset,
-            discarding_oversized_line: false,
-        }
-    }
-
-    pub fn received_offset(&self) -> u64 {
-        self.received_offset
-    }
-
-    pub fn committable_offset(&self) -> u64 {
-        self.committable_offset
-    }
-
-    pub fn partial_len(&self) -> usize {
-        self.buffer.len()
-    }
-
-    pub fn push(&mut self, chunk: &[u8]) -> Result<Vec<FramedLine>, TranscriptParseError> {
-        self.received_offset = self
-            .received_offset
-            .saturating_add(u64::try_from(chunk.len()).unwrap_or(u64::MAX));
-        let mut lines = Vec::new();
-        let chunk = if self.discarding_oversized_line {
-            let Some(relative) = chunk.iter().position(|byte| *byte == b'\n') else {
-                return Ok(lines);
-            };
-            let consumed = relative + 1;
-            let end_offset = self
-                .received_offset
-                .saturating_sub(u64::try_from(chunk.len() - consumed).unwrap_or(0));
-            lines.push(FramedLine {
-                raw_line: String::new(),
-                end_offset,
-                parsed: Err(TranscriptParseError::LineTooLarge.to_string()),
-            });
-            self.discarding_oversized_line = false;
-            &chunk[consumed..]
-        } else {
-            chunk
-        };
-        self.buffer.extend_from_slice(chunk);
-        if self.buffer.len() > MAX_TRANSCRIPT_LINE_BYTES && !self.buffer.contains(&b'\n') {
-            self.buffer.clear();
-            self.discarding_oversized_line = true;
-            return Ok(lines);
-        }
-        let mut consumed = 0usize;
-        while let Some(relative) = self.buffer[consumed..]
-            .iter()
-            .position(|byte| *byte == b'\n')
-        {
-            let end = consumed + relative + 1;
-            if end - consumed > MAX_TRANSCRIPT_LINE_BYTES {
-                let end_offset = self
-                    .received_offset
-                    .saturating_sub(u64::try_from(self.buffer.len() - end).unwrap_or(0));
-                lines.push(FramedLine {
-                    raw_line: String::new(),
-                    end_offset,
-                    parsed: Err(TranscriptParseError::LineTooLarge.to_string()),
-                });
-                consumed = end;
-                continue;
-            }
-            let physical = &self.buffer[consumed..end];
-            let mut content = &physical[..physical.len() - 1];
-            if content.last() == Some(&b'\r') {
-                content = &content[..content.len() - 1];
-            }
-            let end_offset = self
-                .received_offset
-                .saturating_sub(u64::try_from(self.buffer.len() - end).unwrap_or(0));
-            let (raw_line, parsed) = match std::str::from_utf8(content) {
-                Ok(raw_line) if content.is_empty() => (raw_line.to_owned(), Ok(Value::Null)),
-                Ok(raw_line) => (
-                    raw_line.to_owned(),
-                    serde_json::from_slice(content).map_err(|error| error.to_string()),
-                ),
-                Err(_) => (
-                    String::new(),
-                    Err(TranscriptParseError::InvalidUtf8.to_string()),
-                ),
-            };
-            if parsed.is_ok() {
-                self.committable_offset = end_offset;
-            }
-            lines.push(FramedLine {
-                raw_line,
-                end_offset,
-                parsed,
-            });
-            consumed = end;
-        }
-        if consumed > 0 {
-            self.buffer.drain(..consumed);
-        }
-        if self.buffer.len() > MAX_TRANSCRIPT_LINE_BYTES {
-            self.buffer.clear();
-            self.discarding_oversized_line = true;
-        }
-        Ok(lines)
-    }
-
-    pub fn reset(&mut self, offset: u64) {
-        *self = Self::with_offset(offset);
-    }
-}
 
 #[derive(Clone, Debug)]
 struct ToolLocation {
@@ -1297,36 +1151,15 @@ struct CachedCodexSessionRef<'a> {
     revision: u64,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct CodexBindResult {
-    pub source_generation: u64,
-    pub start_offset: u64,
-    pub rebuilt: bool,
-}
-
-#[derive(Clone, Debug)]
-pub struct CodexIngestResult {
-    pub source_generation: u64,
-    pub received_offset: u64,
-    pub committable_offset: u64,
-    pub malformed_records: u32,
-    pub changed: bool,
-    pub update: Option<AgentTranscriptUpdate>,
-}
-
 /// Pure state machine shared by live sessions and deterministic tests. Remote
 /// I/O and durable blob storage are intentionally injected around this core.
 #[derive(Clone, Debug)]
 pub struct CodexSessionCore {
     requested_session_id: String,
-    source: Option<CodexSourceIdentity>,
-    source_generation: u64,
+    cursor: FileSourceCursor,
     revision: u64,
     adapter: CodexTranscriptAdapter,
-    framer: TranscriptJsonlFramer,
     cached_lines: Vec<CachedCodexLine>,
-    committed_offset: u64,
-    initial_history_end: Option<u64>,
     history_gate: InitialHistoryGate,
 }
 
@@ -1335,24 +1168,24 @@ impl CodexSessionCore {
         let session_id = session_id.into();
         Self {
             requested_session_id: session_id.clone(),
-            source: None,
-            source_generation: 0,
+            cursor: FileSourceCursor::default(),
             revision: 0,
             adapter: CodexTranscriptAdapter::new(session_id),
-            framer: TranscriptJsonlFramer::default(),
             cached_lines: Vec::new(),
-            committed_offset: 0,
-            initial_history_end: None,
             history_gate: InitialHistoryGate::default(),
         }
     }
 
+    pub(crate) fn invalidate_source(&mut self) {
+        self.cursor.source = None;
+    }
+
     pub fn source_generation(&self) -> u64 {
-        self.source_generation
+        self.cursor.generation
     }
 
     pub fn committed_offset(&self) -> u64 {
-        self.committed_offset
+        self.cursor.committed
     }
 
     pub fn revision(&self) -> u64 {
@@ -1360,7 +1193,7 @@ impl CodexSessionCore {
     }
 
     pub fn received_offset(&self) -> u64 {
-        self.framer.received_offset()
+        self.cursor.framer.received_offset()
     }
 
     pub fn state(&self) -> AgentTranscriptState {
@@ -1421,7 +1254,7 @@ impl CodexSessionCore {
     }
 
     pub fn close_update(&mut self) -> AgentTranscriptUpdate {
-        self.source_generation = self.source_generation.saturating_add(1);
+        self.cursor.generation = self.cursor.generation.saturating_add(1);
         self.history_gate.close();
         self.bump_revision();
         self.status_update()
@@ -1494,33 +1327,33 @@ impl CodexSessionCore {
                 .revision
                 .ok_or_else(|| AgentCacheError::Malformed("cache revision is missing".to_owned()))?
         };
-        self.source = cached.source;
-        self.committed_offset = cached.committed_offset;
+        self.cursor.source = cached.source;
+        self.cursor.committed = cached.committed_offset;
         self.cached_lines = cached.lines;
         self.adapter = adapter;
         self.revision = revision;
         // A checkpoint can be behind the remote rollout. Keep it hidden until
         // discovery establishes a boundary and the stream catches up to it.
-        self.initial_history_end = None;
+        self.cursor.initial_history_end = None;
         self.history_gate.reset();
-        self.framer = TranscriptJsonlFramer::with_offset(self.committed_offset);
+        self.cursor.framer = TranscriptJsonlFramer::with_offset(self.cursor.committed);
         self.bump_revision();
         Ok(self.state())
     }
 
     pub fn committable_offset(&self) -> u64 {
-        self.framer.committable_offset()
+        self.cursor.framer.committable_offset()
     }
 
     pub fn cache_blob(&self) -> Result<Vec<u8>, AgentCacheError> {
-        let committable = self.framer.committable_offset();
+        let committable = self.cursor.framer.committable_offset();
         let committed_line_count = self
             .cached_lines
             .partition_point(|line| line.end_offset <= committable);
         serde_json::to_vec(&CachedCodexSessionRef {
             schema_version: CODEX_CACHE_SCHEMA_VERSION,
             requested_session_id: &self.requested_session_id,
-            source: self.source.as_ref(),
+            source: self.cursor.source.as_ref(),
             committed_offset: committable,
             lines: &self.cached_lines[..committed_line_count],
             history_mode: self.adapter.history_mode,
@@ -1530,14 +1363,7 @@ impl CodexSessionCore {
     }
 
     pub fn confirm_cache(&mut self, source_generation: u64, offset: u64) -> bool {
-        if source_generation != self.source_generation
-            || offset < self.committed_offset
-            || offset > self.framer.committable_offset()
-        {
-            return false;
-        }
-        self.committed_offset = offset;
-        true
+        self.cursor.confirm(source_generation, offset)
     }
 
     pub fn bind_source(
@@ -1546,37 +1372,16 @@ impl CodexSessionCore {
         file_id: String,
         remote_size: u64,
     ) -> CodexBindResult {
-        let next = CodexSourceIdentity {
-            requested_session_id: self.requested_session_id.clone(),
-            rollout_path: path,
-            file_id,
-        };
-        self.source_generation = self.source_generation.saturating_add(1);
-        // In-process reconnects may happen after records were incorporated but
-        // before the platform cache write was confirmed. Resume after the last
-        // complete handled line, while keeping committed_offset as the durable
-        // crash-recovery checkpoint.
-        let resume_offset = self.framer.committable_offset();
-        let warm = self.source.as_ref() == Some(&next) && remote_size >= resume_offset;
-        if warm {
-            self.framer = TranscriptJsonlFramer::with_offset(resume_offset);
-        } else {
+        let binding = self
+            .cursor
+            .bind(&self.requested_session_id, path, file_id, remote_size);
+        if binding.rebuilt {
             self.adapter = CodexTranscriptAdapter::new(self.requested_session_id.clone());
             self.cached_lines.clear();
-            self.committed_offset = 0;
-            self.framer.reset(0);
             self.bump_revision();
         }
-        self.source = Some(next);
-        // Freeze the opening boundary. Later appends must not keep moving the
-        // target while the initial transcript is being prepared for display.
-        self.initial_history_end = Some(remote_size);
         self.history_gate.reset();
-        CodexBindResult {
-            source_generation: self.source_generation,
-            start_offset: if warm { resume_offset } else { 0 },
-            rebuilt: !warm,
-        }
+        binding
     }
 
     pub fn ingest(
@@ -1584,17 +1389,17 @@ impl CodexSessionCore {
         source_generation: u64,
         bytes: &[u8],
     ) -> Result<CodexIngestResult, TranscriptParseError> {
-        if source_generation != self.source_generation {
+        if source_generation != self.cursor.generation {
             return Ok(CodexIngestResult {
                 source_generation,
-                received_offset: self.framer.received_offset(),
-                committable_offset: self.framer.committable_offset(),
+                received_offset: self.cursor.framer.received_offset(),
+                committable_offset: self.cursor.framer.committable_offset(),
                 malformed_records: 0,
                 changed: false,
                 update: None,
             });
         }
-        let lines = self.framer.push(bytes)?;
+        let lines = self.cursor.framer.push(bytes)?;
         let mut changed = false;
         let mut reset = false;
         let mut deltas = Vec::new();
@@ -1637,8 +1442,8 @@ impl CodexSessionCore {
         });
         Ok(CodexIngestResult {
             source_generation,
-            received_offset: self.framer.received_offset(),
-            committable_offset: self.framer.committable_offset(),
+            received_offset: self.cursor.framer.received_offset(),
+            committable_offset: self.cursor.framer.committable_offset(),
             malformed_records,
             changed,
             update,
@@ -1649,8 +1454,7 @@ impl CodexSessionCore {
         // Called after ingest has processed every complete record in a chunk.
         // A record still being written at the boundary is live input; waiting
         // for its newline (or a durable cache cursor) could block opening forever.
-        self.initial_history_end
-            .is_some_and(|end| self.framer.received_offset() >= end)
+        self.cursor.caught_up()
     }
 
     pub fn initial_history_caught_up(&self) -> bool {
@@ -2982,7 +2786,7 @@ mod tests {
             .unwrap();
         assert_eq!(core.committed_offset(), 0);
         assert_eq!(core.state().messages.len(), 1);
-        let committable = core.framer.committable_offset();
+        let committable = core.cursor.framer.committable_offset();
         assert_eq!(committable, complete.len() as u64);
         assert!(core.confirm_cache(binding.source_generation, committable));
         assert_eq!(core.committed_offset(), complete.len() as u64);
@@ -3256,7 +3060,7 @@ mod tests {
         let mut core = CodexSessionCore::new("thread");
         let binding = core.bind_source("/rollout".into(), "1:2".into(), first.len() as u64);
         core.ingest(binding.source_generation, &first).unwrap();
-        let cursor = core.framer.committable_offset();
+        let cursor = core.cursor.framer.committable_offset();
         let blob = core.cache_blob().unwrap();
         assert!(core.confirm_cache(binding.source_generation, cursor));
 
@@ -3331,7 +3135,7 @@ mod tests {
         let legacy_blob = serde_json::to_vec(&CachedCodexSession {
             schema_version: 1,
             requested_session_id: core.requested_session_id.clone(),
-            source: core.source.clone(),
+            source: core.cursor.source.clone(),
             committed_offset: cached.committed_offset,
             lines: cached.lines,
             history_mode: None,
@@ -3405,7 +3209,7 @@ mod tests {
         let mut core = CodexSessionCore::new("thread");
         let old = core.bind_source("/rollout".into(), "1:2".into(), first.len() as u64);
         core.ingest(old.source_generation, &first).unwrap();
-        let cursor = core.framer.committable_offset();
+        let cursor = core.cursor.framer.committable_offset();
         core.confirm_cache(old.source_generation, cursor);
 
         let replacement = core.bind_source("/rollout".into(), "9:9".into(), 0);

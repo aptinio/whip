@@ -7,7 +7,7 @@ import { reportBackgroundFailure } from './backgroundOperations';
 import { setChatSpeechFocus } from './chatSpeechFocus';
 
 export interface ChatSpeechTarget {
-  agent: 'codex' | 'opencode';
+  agent: 'claude' | 'codex' | 'opencode';
   bindingToken: string;
   hostId: string;
   paneId: string;

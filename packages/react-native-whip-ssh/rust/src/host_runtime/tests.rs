@@ -907,7 +907,7 @@ fn bound(result: AgentChatOpenResult) -> AgentChatBinding {
 }
 
 #[test]
-fn agent_chat_resolution_uses_authoritative_codex_and_opencode_sessions() {
+fn agent_chat_resolution_uses_authoritative_agent_sessions() {
     let _guard = EVENT_SINK_TEST_LOCK.lock();
     let codex = "11111111-1111-4111-8111-111111111111";
     let inner = connected_runtime_inner("agent-chat-resolution");
@@ -939,6 +939,18 @@ fn agent_chat_resolution_uses_authoritative_codex_and_opencode_sessions() {
     assert_eq!(replacement.agent, AgentTranscriptKind::OpenCode);
     assert_eq!(replacement.session_id, "ses_abc123");
     assert_ne!(replacement.binding_token, binding.binding_token);
+    install_agent_chat_snapshot(&inner, agent_chat_snapshot(Some(("claude", codex)), None));
+    let claude = runtime
+        .current_agent_chat("terminal-pane-1".to_owned())
+        .unwrap();
+    assert_eq!(claude.agent, AgentTranscriptKind::Claude);
+    assert_eq!(claude.session_id, codex);
+    assert_eq!(claude.state.agent, AgentTranscriptKind::Claude);
+    assert_eq!(
+        claude.transcript_key,
+        format!("agent-chat-resolution\nclaude\n{codex}")
+    );
+    assert_ne!(claude.binding_token, replacement.binding_token);
     assert!(matches!(
         runtime
             .start_agent_chat(binding.binding_token, None)

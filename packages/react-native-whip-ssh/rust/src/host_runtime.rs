@@ -601,7 +601,9 @@ fn authoritative_agent_chat_identity(
     if session.kind != HerdrAgentSessionKind::Id {
         return None;
     }
-    let agent = if session.agent.eq_ignore_ascii_case("codex") {
+    let agent = if session.agent.eq_ignore_ascii_case("claude") {
+        AgentTranscriptKind::Claude
+    } else if session.agent.eq_ignore_ascii_case("codex") {
         AgentTranscriptKind::Codex
     } else if session.agent.eq_ignore_ascii_case("opencode") {
         AgentTranscriptKind::OpenCode

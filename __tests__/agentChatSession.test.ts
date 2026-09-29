@@ -2,6 +2,8 @@ import {
   activePaneForTerminal,
   agentChatControlState,
   chatAgentForPane,
+  chatAgentDisplayName,
+  isClaudePane,
 } from '../src/lib/agentChatSession';
 import {
   AgentChatPresentationPhase,
@@ -41,17 +43,25 @@ const pane = (agent: string, sessionAgent = agent, value = ''): PaneInfo => ({
     : {}),
 });
 
-test('chat control is limited to Codex and OpenCode panes', () => {
+test('chat control recognizes Claude, Codex, and OpenCode panes', () => {
   expect(chatAgentForPane(undefined)).toBeNull();
   expect(chatAgentForPane(pane('codex'))).toBe('codex');
   expect(chatAgentForPane(pane('opencode'))).toBe('opencode');
   expect(chatAgentForPane(pane('open-code'))).toBe('opencode');
-  expect(chatAgentForPane(pane('claude'))).toBeNull();
+  expect(chatAgentForPane(pane('claude'))).toBe('claude');
+  expect(chatAgentForPane(pane('shell'))).toBeNull();
+  expect(isClaudePane(pane('Claude Code'))).toBe(true);
+  expect(isClaudePane(pane('shell', 'claude', 'session-id'))).toBe(true);
+  expect(isClaudePane(pane('notclaude'))).toBe(false);
+  expect(isClaudePane(undefined)).toBe(false);
+  expect(chatAgentDisplayName('claude')).toBe('Claude');
+  expect(agentChatControlState(pane('claude'), false, false))
+    .toEqual({ agent: 'claude', disabled: false, loading: false });
 });
 
 test('chat control follows the supported active terminal pane', () => {
   const codex = pane('codex');
-  const unsupported = { ...pane('claude'), terminal_id: 'other-terminal' };
+  const unsupported = { ...pane('shell'), terminal_id: 'other-terminal' };
   const sessions: TerminalSession[] = [
     {
       terminalId: codex.terminal_id,
@@ -64,7 +74,7 @@ test('chat control follows the supported active terminal pane', () => {
     {
       terminalId: unsupported.terminal_id,
       paneId: unsupported.pane_id,
-      title: 'Claude',
+      title: 'Shell',
       kind: 'herdr',
       status: 'connected',
       reconnectAttempt: 0,

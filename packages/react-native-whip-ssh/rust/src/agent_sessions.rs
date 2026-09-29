@@ -10,14 +10,15 @@ use parking_lot::{Mutex, RwLock};
 
 use crate::agent_transcript::{
     AgentCacheError, AgentTranscriptDelta, AgentTranscriptKind, AgentTranscriptState,
-    AgentTranscriptStatus, AgentTranscriptUpdate, AgentTurnStatus, CodexSessionCore,
-    OpenCodeSessionCore, parse_open_code_cursor,
+    AgentTranscriptStatus, AgentTranscriptUpdate, AgentTurnStatus, ClaudeSessionCore,
+    CodexSessionCore, FileTranscriptCore, OpenCodeSessionCore, parse_open_code_cursor,
 };
 use crate::herdr_connection::{ConnectionExecStream, HerdrConnection};
 
 const RETRY_DELAY: Duration = Duration::from_millis(1_500);
+const FILE_SOURCE_POLL_DELAY: Duration = Duration::from_secs(2);
 const OPENCODE_POLL_DELAY: Duration = Duration::from_millis(1_200);
-const CODEX_CHECKPOINT_BYTES: u64 = 256 * 1024;
+const FILE_CHECKPOINT_BYTES: u64 = 256 * 1024;
 const OPENCODE_CHECKPOINT_EVENTS: u64 = 64;
 static NEXT_STREAM_CONTEXT: AtomicU64 = AtomicU64::new(1);
 static NEXT_OPERATION_EPOCH: AtomicU64 = AtomicU64::new(1);
@@ -170,6 +171,9 @@ pub fn read_cached_agent_transcript(
     cache_blob: Vec<u8>,
 ) -> Result<AgentTranscriptState, AgentSessionError> {
     let mut state = match agent {
+        AgentTranscriptKind::Claude => {
+            ClaudeSessionCore::new(session_id).restore_cache(&cache_blob)?
+        }
         AgentTranscriptKind::Codex => {
             let mut core = CodexSessionCore::new(session_id);
             core.restore_cache(&cache_blob)?
@@ -214,13 +218,23 @@ struct TerminalBinding {
 
 #[derive(Debug)]
 enum AgentSessionCore {
+    Claude(Box<ClaudeSessionCore>),
     Codex(Box<CodexSessionCore>),
     OpenCode(Box<OpenCodeSessionCore>),
 }
 
 impl AgentSessionCore {
+    fn file(&mut self) -> Option<&mut dyn FileTranscriptCore> {
+        match self {
+            Self::Claude(core) => Some(core.as_mut()),
+            Self::Codex(core) => Some(core.as_mut()),
+            Self::OpenCode(_) => None,
+        }
+    }
+
     fn kind(&self) -> AgentTranscriptKind {
         match self {
+            Self::Claude(_) => AgentTranscriptKind::Claude,
             Self::Codex(_) => AgentTranscriptKind::Codex,
             Self::OpenCode(_) => AgentTranscriptKind::OpenCode,
         }
@@ -228,6 +242,7 @@ impl AgentSessionCore {
 
     fn state(&self) -> AgentTranscriptState {
         match self {
+            Self::Claude(core) => core.state(),
             Self::Codex(core) => core.state(),
             Self::OpenCode(core) => core.state(),
         }
@@ -236,6 +251,7 @@ impl AgentSessionCore {
     fn mark_stale_update(&mut self, reason: impl Into<String>) -> AgentTranscriptUpdate {
         let reason = reason.into();
         match self {
+            Self::Claude(core) => core.mark_stale_update(reason),
             Self::Codex(core) => core.mark_stale_update(reason),
             Self::OpenCode(core) => core.mark_stale_update(reason),
         }
@@ -244,6 +260,7 @@ impl AgentSessionCore {
     fn mark_restarting_update(&mut self, reason: impl Into<String>) -> AgentTranscriptUpdate {
         let reason = reason.into();
         match self {
+            Self::Claude(core) => core.mark_restarting_update(reason),
             Self::Codex(core) => core.mark_restarting_update(reason),
             Self::OpenCode(core) => core.mark_restarting_update(reason),
         }
@@ -252,6 +269,7 @@ impl AgentSessionCore {
     fn mark_unavailable_update(&mut self, reason: impl Into<String>) -> AgentTranscriptUpdate {
         let reason = reason.into();
         match self {
+            Self::Claude(core) => core.mark_unavailable_update(reason),
             Self::Codex(core) => core.mark_unavailable_update(reason),
             Self::OpenCode(core) => core.mark_unavailable_update(reason),
         }
@@ -259,6 +277,7 @@ impl AgentSessionCore {
 
     fn close_update(&mut self) -> AgentTranscriptUpdate {
         match self {
+            Self::Claude(core) => core.close_update(),
             Self::Codex(core) => core.close_update(),
             Self::OpenCode(core) => core.close_update(),
         }
@@ -266,6 +285,7 @@ impl AgentSessionCore {
 
     fn restore_cache(&mut self, bytes: &[u8]) -> Result<AgentTranscriptState, AgentCacheError> {
         match self {
+            Self::Claude(core) => core.restore_cache(bytes),
             Self::Codex(core) => core.restore_cache(bytes),
             Self::OpenCode(core) => core.restore_cache(bytes),
         }
@@ -273,6 +293,7 @@ impl AgentSessionCore {
 
     fn confirm_cache(&mut self, source_generation: u64, position: u64) -> bool {
         match self {
+            Self::Claude(core) => core.confirm_cache(source_generation, position),
             Self::Codex(core) => core.confirm_cache(source_generation, position),
             Self::OpenCode(core) => core.confirm_cache(source_generation, position),
         }
@@ -447,6 +468,7 @@ impl AgentSessionManager {
         identity: AuthoritativeAgentChatIdentity,
     ) -> Result<AgentChatBinding, AgentSessionError> {
         match identity.agent {
+            AgentTranscriptKind::Claude => validate_claude_session_id(&identity.session_id)?,
             AgentTranscriptKind::Codex => validate_codex_session_id(&identity.session_id)?,
             AgentTranscriptKind::OpenCode => validate_opencode_session_id(&identity.session_id)?,
         }
@@ -492,6 +514,9 @@ impl AgentSessionManager {
             });
             let session = state.sessions.entry(key.clone()).or_insert_with(|| {
                 let core = match identity.agent {
+                    AgentTranscriptKind::Claude => AgentSessionCore::Claude(Box::new(
+                        ClaudeSessionCore::new(identity.session_id.clone()),
+                    )),
                     AgentTranscriptKind::Codex => AgentSessionCore::Codex(Box::new(
                         CodexSessionCore::new(identity.session_id.clone()),
                     )),
@@ -587,6 +612,7 @@ impl AgentSessionManager {
         };
         if should_start {
             let label = match kind {
+                AgentTranscriptKind::Claude => "Opening Claude transcript",
                 AgentTranscriptKind::Codex => "Opening Codex transcript",
                 AgentTranscriptKind::OpenCode => "Opening OpenCode transcript",
             };
@@ -666,6 +692,9 @@ impl AgentSessionManager {
                 // Freeze callbacks before taking the final checkpoint. Incomplete
                 // JSONL tails are intentionally replayed from the remote cursor.
                 let blob = match &session.core {
+                    AgentSessionCore::Claude(core) if core.committable_offset() > 0 => {
+                        Some(core.cache_blob()?)
+                    }
                     AgentSessionCore::Codex(core) if core.committable_offset() > 0 => {
                         Some(core.cache_blob()?)
                     }
@@ -806,6 +835,7 @@ impl AgentSessionManager {
 
     fn transcript_key(&self, identity: &AuthoritativeAgentChatIdentity) -> String {
         let agent = match identity.agent {
+            AgentTranscriptKind::Claude => "claude",
             AgentTranscriptKind::Codex => "codex",
             AgentTranscriptKind::OpenCode => "opencode",
         };
@@ -877,9 +907,9 @@ impl AgentSessionManager {
         if let Ok(runtime) = crate::runtime() {
             runtime.spawn(async move {
                 match operation.3 {
-                    AgentTranscriptKind::Codex => {
+                    AgentTranscriptKind::Claude | AgentTranscriptKind::Codex => {
                         manager
-                            .resolve_and_open(key, operation.0, operation.1)
+                            .resolve_and_open(key, operation.0, operation.1, operation.3)
                             .await;
                     }
                     AgentTranscriptKind::OpenCode => {
@@ -890,36 +920,46 @@ impl AgentSessionManager {
         }
     }
 
-    async fn resolve_and_open(&self, key: String, operation_epoch: u64, session_id: String) {
+    async fn resolve_and_open(
+        &self,
+        key: String,
+        operation_epoch: u64,
+        session_id: String,
+        agent: AgentTranscriptKind,
+    ) {
         let connection = self.inner.connection.clone();
         let result = async {
-            let output = execute(&connection, codex_rollout_find_command(&session_id))
+            let command = if agent == AgentTranscriptKind::Claude {
+                claude_transcript_find_command(&session_id)
+            } else {
+                codex_rollout_find_command(&session_id)
+            };
+            let output = execute(&connection, command).await.map_err(|error| {
+                AgentSessionError::ReadFailed(format!(
+                    "{agent:?} transcript discovery failed: {error}"
+                ))
+            })?;
+            let path = if agent == AgentTranscriptKind::Claude {
+                resolve_claude_path(&output, &session_id)?
+            } else {
+                resolve_rollout_path(&output, &session_id)?
+            };
+            let Some(path) = path else {
+                return Err(AgentSessionError::SourceUnavailable(
+                    if agent == AgentTranscriptKind::Codex {
+                        "Codex has not created this rollout yet.".to_owned()
+                    } else {
+                        "Claude has not created this transcript yet.".to_owned()
+                    },
+                ));
+            };
+            let metadata = execute(&connection, file_metadata_command(&path))
                 .await
                 .map_err(|error| {
                     AgentSessionError::ReadFailed(format!(
-                        "Codex rollout discovery failed: {error}"
+                        "{agent:?} transcript metadata lookup failed: {error}"
                     ))
                 })?;
-            let path = resolve_rollout_path(&output, &session_id)?;
-            let Some(path) = path else {
-                return Err(AgentSessionError::SourceUnavailable(
-                    "Codex has not created this rollout yet.".to_owned(),
-                ));
-            };
-            let metadata = execute(
-                &connection,
-                format!(
-                    "stat -c '%d:%i %s' {} 2>/dev/null || stat -f '%d:%i %z' {}",
-                    shell_quote(&path),
-                    shell_quote(&path)
-                ),
-            )
-            .await
-            .map_err(|error| {
-                AgentSessionError::ReadFailed(format!(
-                    "Codex rollout metadata lookup failed: {error}"
-                ))
-            })?;
             let (file_id, size) = parse_metadata(&metadata)?;
             Ok::<_, AgentSessionError>((path, file_id, size))
         }
@@ -948,7 +988,7 @@ impl AgentSessionManager {
                 return;
             }
             session.pending_cache_offset = None;
-            let AgentSessionCore::Codex(core) = &mut session.core else {
+            let Some(core) = session.core.file() else {
                 return;
             };
             let binding = core.bind_source(path.clone(), file_id.clone(), size);
@@ -973,7 +1013,7 @@ impl AgentSessionManager {
         if let Some(update) = opened.2 {
             emit(&self.inner, key.clone(), operation_epoch, update, None);
         }
-        let command = codex_stream_command(&path, opened.1);
+        let command = file_stream_command(&path, opened.1);
         let context = opened.0;
         let data = Arc::new(move |bytes| stream_data(context, bytes));
         let closed = Arc::new(move |reason| stream_failed(context, reason));
@@ -986,7 +1026,7 @@ impl AgentSessionManager {
                 self.fail_session(
                     key.clone(),
                     operation_epoch,
-                    format!("Codex rollout stream open failed: {error}"),
+                    format!("{agent:?} transcript stream open failed: {error}"),
                     SessionFailureKind::Transient,
                 );
                 false
@@ -1005,19 +1045,86 @@ impl AgentSessionManager {
                 accepted
             }
         };
+        if stream_requested {
+            self.monitor_file_source(key.clone(), operation_epoch, path, file_id, size);
+        }
         if stream_requested && size == opened.1 {
             let emission = {
                 let mut state = self.inner.state.lock();
                 current_session_mut(&mut state, &key, operation_epoch).and_then(|session| {
-                    match &mut session.core {
-                        AgentSessionCore::Codex(core) => core.mark_live_update(),
-                        AgentSessionCore::OpenCode(_) => None,
-                    }
+                    session
+                        .core
+                        .file()
+                        .and_then(FileTranscriptCore::mark_live_update)
                 })
             };
             if let Some(update) = emission {
                 emit(&self.inner, key, operation_epoch, update, None);
             }
+        }
+    }
+
+    fn monitor_file_source(
+        &self,
+        key: String,
+        epoch: u64,
+        path: String,
+        file_id: String,
+        mut previous_size: u64,
+    ) {
+        let manager = self.clone();
+        if let Ok(runtime) = crate::runtime() {
+            runtime.spawn(async move {
+                loop {
+                    tokio::time::sleep(FILE_SOURCE_POLL_DELAY).await;
+                    // Capture the received cursor BEFORE stat. Appends arriving
+                    // during the request must not look like remote truncation.
+                    let received = {
+                        let mut state = manager.inner.state.lock();
+                        let Some(session) = current_session_mut(&mut state, &key, epoch) else {
+                            return;
+                        };
+                        if session.retry_running || session.terminals.is_empty() {
+                            return;
+                        }
+                        let Some(core) = session.core.file() else {
+                            return;
+                        };
+                        core.received_offset()
+                    };
+                    let metadata = execute(&manager.inner.connection, file_metadata_command(&path))
+                        .await
+                        .and_then(|output| parse_metadata(&output));
+                    let Ok((current_id, size)) = metadata else {
+                        manager.fail_session(
+                            key,
+                            epoch,
+                            "Transcript source metadata became unavailable".to_owned(),
+                            SessionFailureKind::Transient,
+                        );
+                        return;
+                    };
+                    if current_id != file_id || size < previous_size || size < received {
+                        // Guard against a detached/rebound pane while stat was
+                        // in flight before restarting its current operation.
+                        let current = {
+                            let mut state = manager.inner.state.lock();
+                            current_session_mut(&mut state, &key, epoch)
+                                .and_then(|session| session.core.file())
+                                .map(FileTranscriptCore::invalidate_source)
+                                .is_some()
+                        };
+                        if current {
+                            manager.restart(
+                                key,
+                                "Transcript source was replaced or truncated".to_owned(),
+                            );
+                        }
+                        return;
+                    }
+                    previous_size = size;
+                }
+            });
         }
     }
 
@@ -1069,7 +1176,7 @@ impl AgentSessionManager {
                 current_session_mut(&mut state, &key, operation_epoch).and_then(|session| {
                     match &mut session.core {
                         AgentSessionCore::OpenCode(core) => Some(core.mark_live_update()),
-                        AgentSessionCore::Codex(_) => None,
+                        AgentSessionCore::Claude(_) | AgentSessionCore::Codex(_) => None,
                     }
                 })
             };
@@ -1420,7 +1527,7 @@ fn stream_data(context: u64, bytes: Vec<u8>) {
             ) else {
                 return;
             };
-            let AgentSessionCore::Codex(core) = &mut session.core else {
+            let Some(core) = session.core.file() else {
                 return;
             };
             match core.ingest(context_value.source_generation, &bytes) {
@@ -1437,7 +1544,7 @@ fn stream_data(context: u64, bytes: Vec<u8>) {
                         .unwrap_or_else(|| core.committed_offset());
                     let checkpoint_due = update.as_ref().is_some_and(completes_turn)
                         || result.committable_offset.saturating_sub(checkpoint_base)
-                            >= CODEX_CHECKPOINT_BYTES;
+                            >= FILE_CHECKPOINT_BYTES;
                     // Each cache blob contains all prior JSONL lines. Sending
                     // another while one is crossing the bridge can retain many
                     // large copies of the same history in native and JS memory.
@@ -1611,6 +1718,57 @@ fn opencode_events_command(session_id: &str, after_sequence: u64) -> String {
     format!("opencode db {} --format json", shell_quote(&query))
 }
 
+fn validate_claude_session_id(value: &str) -> Result<(), AgentSessionError> {
+    if parse_uuid_bytes(value).is_some() {
+        Ok(())
+    } else {
+        Err(AgentSessionError::InvalidSession(
+            "Claude session ID must be a UUID".to_owned(),
+        ))
+    }
+}
+
+fn claude_transcript_find_command(session_id: &str) -> String {
+    let name = shell_quote(&format!("{session_id}.jsonl"));
+    // GNU and BSD stat both work; separate the numeric mtime from the exact
+    // pathname with a tab. All dynamic arguments remain shell-quoted.
+    format!(
+        r#"find "$HOME/.claude/projects" -type f -name {name} -exec sh -c 'for p do t=$(stat -c %Y "$p" 2>/dev/null || stat -f %m "$p") || continue; printf "%s\t%s\n" "$t" "$p"; done' sh {{}} +"#
+    )
+}
+
+fn resolve_claude_path(
+    output: &str,
+    session_id: &str,
+) -> Result<Option<String>, AgentSessionError> {
+    validate_claude_session_id(session_id)?;
+    let filename = format!("{session_id}.jsonl");
+    let candidate = output
+        .lines()
+        .filter_map(|line| {
+            let (mtime, path) = line.split_once('\t')?;
+            let mtime = mtime.parse::<i64>().ok()?;
+            if !path.starts_with('/')
+                || !path.contains("/.claude/projects/")
+                || path.chars().any(char::is_control)
+                || path.rsplit('/').next() != Some(filename.as_str())
+                || path
+                    .split('/')
+                    .any(|part| matches!(part, ".." | "subagents" | "tool-results"))
+            {
+                return None;
+            }
+            Some((mtime, path))
+        })
+        .max();
+    if candidate.is_none() && !output.trim().is_empty() {
+        return Err(AgentSessionError::SourceUnavailable(
+            "Claude returned no valid transcript for the session ID".into(),
+        ));
+    }
+    Ok(candidate.map(|(_, path)| path.to_owned()))
+}
+
 fn codex_rollout_find_command(session_id: &str) -> String {
     let ordinary = shell_quote(&format!("rollout-*-{session_id}.jsonl"));
     let reverted = shell_quote(&format!("rollout-*-{session_id}_*.jsonl"));
@@ -1626,7 +1784,7 @@ fn codex_rollout_find_command(session_id: &str) -> String {
 /// by the previous working TypeScript implementation. `-F` also survives a
 /// same-path replacement; a new reverted-rollout filename is selected by the
 /// Rust resolver whenever the stream is opened or rebound.
-fn codex_stream_command(path: &str, offset: u64) -> String {
+fn file_stream_command(path: &str, offset: u64) -> String {
     let start = shell_quote(&format!("+{}", offset.saturating_add(1)));
     format!("exec tail -c {start} -F {}", shell_quote(path))
 }
@@ -1726,6 +1884,11 @@ fn parse_uuid_bytes(value: &str) -> Option<[u8; 16]> {
     (nibble_index == 32).then_some(bytes)
 }
 
+fn file_metadata_command(path: &str) -> String {
+    let path = shell_quote(path);
+    format!("stat -c '%d:%i %s' {path} 2>/dev/null || stat -f '%d:%i %z' {path}")
+}
+
 fn parse_metadata(output: &str) -> Result<(String, u64), AgentSessionError> {
     let mut fields = output.split_whitespace();
     let file_id = fields.next().unwrap_or_default();
@@ -1738,11 +1901,11 @@ fn parse_metadata(output: &str) -> Result<(String, u64), AgentSessionError> {
     });
     if !file_id_valid || fields.next().is_some() {
         return Err(AgentSessionError::SourceUnavailable(
-            "Codex returned invalid rollout metadata".to_owned(),
+            "Invalid transcript file metadata".to_owned(),
         ));
     }
     let size = size.ok_or_else(|| {
-        AgentSessionError::SourceUnavailable("Codex returned invalid rollout metadata".to_owned())
+        AgentSessionError::SourceUnavailable("Invalid transcript file metadata".to_owned())
     })?;
     Ok((file_id.to_owned(), size))
 }
@@ -1808,6 +1971,107 @@ mod tests {
         assert!(validate_codex_session_id(&format!("{SESSION}; uname -a")).is_err());
         assert!(validate_opencode_session_id("ses_abc123").is_ok());
         assert!(validate_opencode_session_id("ses_x'; DROP TABLE event;--").is_err());
+    }
+
+    #[test]
+    fn claude_discovery_selects_newest_exact_session_and_rejects_unsafe_candidates() {
+        let older = format!("/home/me/.claude/projects/old/{SESSION}.jsonl");
+        let newer = format!("/home/me/.claude/projects/new/{SESSION}.jsonl");
+        let listing =
+            format!("1\t{older}\n2\t{newer}\n99\t/home/me/.claude/projects/x/other.jsonl\n");
+        assert_eq!(
+            resolve_claude_path(&listing, SESSION).unwrap(),
+            Some(newer.clone())
+        );
+        let tied = format!("2\t{older}\n2\t{newer}\n");
+        assert_eq!(resolve_claude_path(&tied, SESSION).unwrap(), Some(older));
+        assert!(resolve_claude_path("", SESSION).unwrap().is_none());
+        for path in [
+            format!("/tmp/{SESSION}.jsonl"),
+            format!("/home/me/.claude/projects/x/subagents/{SESSION}.jsonl"),
+            format!("/home/me/.claude/projects/../{SESSION}.jsonl"),
+        ] {
+            assert!(resolve_claude_path(&format!("1\t{path}\n"), SESSION).is_err());
+        }
+        for id in ["../escape", "*", "$(uname)", "id'; echo oops", "a\nb"] {
+            assert!(validate_claude_session_id(id).is_err());
+        }
+    }
+
+    #[test]
+    fn claude_find_and_metadata_commands_work_with_shell_metacharacters_in_paths() {
+        let root = tempfile::tempdir().unwrap();
+        let projects = root.path().join(".claude/projects");
+        let project = projects.join("a 'quoted' $project");
+        std::fs::create_dir_all(&project).unwrap();
+        let path = project.join(format!("{SESSION}.jsonl"));
+        std::fs::write(&path, b"{}\n").unwrap();
+        let command = claude_transcript_find_command(SESSION).replace(
+            "\"$HOME/.claude/projects\"",
+            &shell_quote(projects.to_str().unwrap()),
+        );
+        let output = std::process::Command::new("sh")
+            .args(["-c", &command])
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+        assert_eq!(
+            resolve_claude_path(std::str::from_utf8(&output.stdout).unwrap(), SESSION).unwrap(),
+            Some(path.to_str().unwrap().to_owned())
+        );
+        let output = std::process::Command::new("sh")
+            .args(["-c", &file_metadata_command(path.to_str().unwrap())])
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+        assert_eq!(
+            parse_metadata(std::str::from_utf8(&output.stdout).unwrap())
+                .unwrap()
+                .1,
+            3
+        );
+    }
+
+    #[test]
+    fn claude_checkpoint_opens_offline_and_archives_from_the_same_pane() {
+        let fixture = include_bytes!("../test-fixtures/claude/main.jsonl");
+        let mut core = ClaudeSessionCore::new(SESSION);
+        let binding = core.bind_source("/transcript".into(), "1:2".into(), fixture.len() as u64);
+        core.ingest(binding.source_generation, fixture).unwrap();
+        let blob = core.cache_blob().unwrap();
+        let saved =
+            read_cached_agent_transcript(AgentTranscriptKind::Claude, SESSION.into(), blob.clone())
+                .unwrap();
+        assert_eq!(saved.agent, AgentTranscriptKind::Claude);
+        assert_eq!(saved.status, AgentTranscriptStatus::Stale);
+        assert_eq!(saved.messages.len(), 5);
+        assert!(
+            read_cached_agent_transcript(AgentTranscriptKind::Codex, SESSION.into(), blob).is_err()
+        );
+        let manager = test_manager("claude-cache");
+        let identity = AuthoritativeAgentChatIdentity {
+            terminal_id: "terminal".into(),
+            pane_id: "pane".into(),
+            agent: AgentTranscriptKind::Claude,
+            session_id: SESSION.into(),
+        };
+        let binding = manager.bind_authoritative(identity).unwrap();
+        {
+            let mut state = manager.inner.state.lock();
+            state
+                .sessions
+                .get_mut(&binding.transcript_key)
+                .unwrap()
+                .core = AgentSessionCore::Claude(Box::new(core));
+        }
+        let archive = manager.detach_terminal("terminal").unwrap().unwrap();
+        assert_eq!(archive.key, binding.transcript_key);
+        assert_eq!(
+            read_cached_agent_transcript(AgentTranscriptKind::Claude, SESSION.into(), archive.blob)
+                .unwrap()
+                .messages,
+            saved.messages
+        );
     }
 
     #[test]
@@ -1900,14 +2164,14 @@ mod tests {
         assert!(matches!(
             parse_metadata("12:34 nope"),
             Err(AgentSessionError::SourceUnavailable(message))
-                if message == "Codex returned invalid rollout metadata"
+                if message == "Invalid transcript file metadata"
         ));
     }
 
     #[test]
     fn stream_command_matches_the_pre_migration_binary_path() {
         assert_eq!(
-            codex_stream_command("/tmp/rollout's file.jsonl", 123),
+            file_stream_command("/tmp/rollout's file.jsonl", 123),
             "exec tail -c '+124' -F '/tmp/rollout'\\''s file.jsonl'"
         );
     }
@@ -1968,7 +2232,7 @@ mod tests {
         let context = NEXT_STREAM_CONTEXT.fetch_add(1, Ordering::Relaxed);
         let chunk = format!(
             "{{\"type\":\"ignored\",\"data\":\"{}\"}}\n",
-            "x".repeat(usize::try_from(CODEX_CHECKPOINT_BYTES).unwrap())
+            "x".repeat(usize::try_from(FILE_CHECKPOINT_BYTES).unwrap())
         )
         .into_bytes();
         let stream_context = {

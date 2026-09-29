@@ -14,7 +14,7 @@ jest.mock('../packages/react-native-whip-ssh/src/generated-entry', () => ({
     NeedsRepair: 3,
     Unknown: 4,
   },
-  AgentTranscriptKind: { Codex: 0, OpenCode: 1 },
+  AgentTranscriptKind: { Claude: 0, Codex: 1, OpenCode: 2 },
   AgentChatOpenResult_Tags: { Bound: 'Bound', NoChat: 'NoChat' },
   AgentChatStartResult_Tags: {
     Started: 'Started',
@@ -781,10 +781,10 @@ describe('native HostRuntime adapter', () => {
     });
   });
 
-  it('projects typed native transcript snapshots and callbacks without JSON', () => {
+  it.each([[1, 'codex'], [2, 'opencode'], [0, 'claude']] as const)('projects native %s (%s) snapshots and callbacks without JSON', (nativeAgent, agent) => {
     const nativeState = {
       sessionId: 'session-1',
-      agent: 0,
+      agent: nativeAgent,
       revision: 4n,
       status: 1,
       messages: [
@@ -851,7 +851,7 @@ describe('native HostRuntime adapter', () => {
             bindingGeneration: 1n,
             terminalId: 'terminal-1',
             paneId: 'pane-1',
-            agent: 0,
+            agent: nativeAgent,
             sessionId: 'session-1',
             transcriptKey: 'codex:session-1',
             state: nativeState,
@@ -864,7 +864,7 @@ describe('native HostRuntime adapter', () => {
         bindingGeneration: 1n,
         terminalId: 'terminal-1',
         paneId: 'pane-1',
-        agent: 0,
+        agent: nativeAgent,
         sessionId: 'session-1',
         transcriptKey: 'codex:session-1',
         state: nativeState,
@@ -899,6 +899,9 @@ describe('native HostRuntime adapter', () => {
     const started = runtime.startAgentChat(result.binding.bindingToken);
 
     expect(current?.bindingToken).toBe('binding-1');
+    expect(current?.agent).toBe(agent);
+    expect(result.binding.agent).toBe(agent);
+    expect(result.binding.state.agent).toBe(agent);
 
     expect(result.binding.state).toEqual(
       expect.objectContaining({
@@ -1001,7 +1004,7 @@ describe('native HostRuntime adapter', () => {
   it('routes transcript events by native runtime incarnation', async () => {
     const nativeState = {
       sessionId: 'session-1',
-      agent: 0,
+      agent: mockGenerated.AgentTranscriptKind.Codex,
       revision: 1n,
       status: 1,
       messages: [],
@@ -1020,7 +1023,7 @@ describe('native HostRuntime adapter', () => {
             bindingGeneration: 1n,
             terminalId: 'terminal-1',
             paneId: 'pane-1',
-            agent: 0,
+            agent: mockGenerated.AgentTranscriptKind.Codex,
             sessionId: 'session-1',
             transcriptKey: 'codex:session-1',
             state: nativeState,

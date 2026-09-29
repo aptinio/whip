@@ -14,7 +14,7 @@ export interface NativeAgentChatCheckpoint {
 export interface SavedAgentChat {
   key: string;
   namespace: string;
-  agent: 'codex' | 'opencode';
+  agent: 'claude' | 'codex' | 'opencode';
   sessionId: string;
   updatedAt: number;
   cacheBytes: number;
@@ -35,7 +35,7 @@ function savedChatFromRow(row: SavedAgentChatRow): SavedAgentChat | null {
   if (separator < 0) return null;
   const agent = identity.slice(0, separator);
   const sessionId = identity.slice(separator + 1);
-  if ((agent !== 'codex' && agent !== 'opencode') || !sessionId || sessionId.includes('\n')) return null;
+  if ((agent !== 'claude' && agent !== 'codex' && agent !== 'opencode') || !sessionId || sessionId.includes('\n')) return null;
   return {
     key: row.cache_key,
     namespace: row.namespace,

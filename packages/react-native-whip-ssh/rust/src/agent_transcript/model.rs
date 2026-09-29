@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, uniffi::Enum)]
 pub enum AgentTranscriptKind {
+    Claude,
     Codex,
     OpenCode,
 }

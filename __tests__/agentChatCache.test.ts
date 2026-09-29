@@ -24,6 +24,7 @@ function sqliteCache() {
 }
 
 const codexKey = 'stable-profile\ncodex\n11111111-1111-4111-8111-111111111111';
+const claudeKey = 'stable-profile\nclaude\n11111111-1111-4111-8111-111111111111';
 const openCodeKey = 'stable-profile\nopencode\nses_abc123';
 
 function checkpoint(key: string, bytes: number[], namespace = 'stable-profile') {
@@ -57,12 +58,14 @@ describe('opaque agent chat persistence adapter', () => {
     try {
       await cache.saveNative(checkpoint(codexKey, [1, 2, 3]));
       await cache.saveNative(checkpoint(openCodeKey, [4, 5]));
+      await cache.saveNative(checkpoint(claudeKey, [6]));
       const saved = await cache.listNative();
       expect(saved.map(chat => [chat.agent, chat.sessionId, chat.cacheBytes])).toEqual(expect.arrayContaining([
         ['opencode', 'ses_abc123', 2],
+        ['claude', '11111111-1111-4111-8111-111111111111', 1],
         ['codex', '11111111-1111-4111-8111-111111111111', 3],
       ]));
-      expect(saved).toHaveLength(2);
+      expect(saved).toHaveLength(3);
     } finally {
       close();
     }

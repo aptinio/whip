@@ -288,7 +288,7 @@ export type NativeAgentTranscriptPart =
 
 export type NativeAgentTranscriptState = {
   sessionId: string;
-  agent: 'codex' | 'opencode';
+  agent: 'claude' | 'codex' | 'opencode';
   revision: number;
   status: 'loading' | 'live' | 'stale' | 'unavailable' | 'error' | 'closed';
   info?: {
@@ -372,7 +372,7 @@ export type NativeAgentChatBinding = {
   bindingGeneration: number;
   terminalId: string;
   paneId: string;
-  agent: 'codex' | 'opencode';
+  agent: 'claude' | 'codex' | 'opencode';
   sessionId: string;
   transcriptKey: string;
   state: NativeAgentTranscriptState;
@@ -1521,12 +1521,24 @@ function nativeAgentTurn(turn: AgentTranscriptTurn): NativeAgentTranscriptTurn {
   };
 }
 
+const CHAT_AGENT_TO_NATIVE = {
+  claude: AgentTranscriptKind.Claude,
+  codex: AgentTranscriptKind.Codex,
+  opencode: AgentTranscriptKind.OpenCode,
+} as const;
+
+const CHAT_AGENT_FROM_NATIVE: Record<AgentTranscriptKind, NativeAgentTranscriptState['agent']> = {
+  [AgentTranscriptKind.Claude]: 'claude',
+  [AgentTranscriptKind.Codex]: 'codex',
+  [AgentTranscriptKind.OpenCode]: 'opencode',
+};
+
 function nativeAgentTranscript(
   value: AgentTranscriptState,
 ): NativeAgentTranscriptState {
   return {
     sessionId: value.sessionId,
-    agent: value.agent === AgentTranscriptKind.OpenCode ? 'opencode' : 'codex',
+    agent: CHAT_AGENT_FROM_NATIVE[value.agent],
     revision: Number(value.revision),
     status: nativeAgentStatus(value.status),
     info: value.info ? nativeAgentInfo(value.info) : undefined,
@@ -1538,12 +1550,12 @@ function nativeAgentTranscript(
 
 /** Decode a persisted conversation locally, with no HostRuntime or SSH call. */
 export function readCachedAgentTranscript(
-  kind: 'codex' | 'opencode',
+  kind: 'claude' | 'codex' | 'opencode',
   sessionId: string,
   blob: ArrayBuffer,
 ): NativeAgentTranscriptState {
   return nativeAgentTranscript(readCachedAgentTranscriptRust(
-    kind === 'codex' ? AgentTranscriptKind.Codex : AgentTranscriptKind.OpenCode,
+    CHAT_AGENT_TO_NATIVE[kind],
     sessionId,
     blob,
   ));
@@ -1558,7 +1570,7 @@ function nativeAgentChatBinding(
     bindingGeneration: Number(value.bindingGeneration),
     terminalId: value.terminalId,
     paneId: value.paneId,
-    agent: value.agent === AgentTranscriptKind.OpenCode ? 'opencode' : 'codex',
+    agent: CHAT_AGENT_FROM_NATIVE[value.agent],
     sessionId: value.sessionId,
     transcriptKey: value.transcriptKey,
     state: nativeAgentTranscript(value.state),
@@ -3343,8 +3355,8 @@ export class NativeAppCore {
 export class NativeChatSpeechQueue {
   private readonly queue = new RustChatSpeechQueue();
 
-  update(kind: 'codex' | 'opencode', live: boolean, messages: readonly NativeAgentTranscriptMessage[]): void {
-    this.queue.update(kind === 'codex' ? AgentTranscriptKind.Codex : AgentTranscriptKind.OpenCode, live, messages.map(message => ({
+  update(kind: 'claude' | 'codex' | 'opencode', live: boolean, messages: readonly NativeAgentTranscriptMessage[]): void {
+    this.queue.update(CHAT_AGENT_TO_NATIVE[kind], live, messages.map(message => ({
       id: message.id,
       assistant: message.role === 'assistant',
       completed: message.completedAt !== undefined,

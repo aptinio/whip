@@ -10,6 +10,7 @@ import {
 
 jest.mock('../packages/react-native-whip-ssh/src/generated-entry', () => ({
   SshErrorCode: {},
+  AgentTranscriptKind: { Claude: 0, Codex: 1, OpenCode: 2 },
   HostConnectionState: { Connected: 2 },
   HostRuntimeEvent_Tags: { ConnectionStateChanged: 'connection' },
   setHerdrTerminalEventSink: jest.fn(),

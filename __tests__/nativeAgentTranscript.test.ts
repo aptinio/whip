@@ -2,7 +2,7 @@ import type { NativeAgentTranscriptState } from 'react-native-whip-ssh';
 
 import { agentChatStateFromNative, applyNativeAgentTranscriptUpdate } from '../src/lib/nativeAgentTranscript';
 
-test('keeps normalized native tool fields typed through the presentation boundary', () => {
+test.each(['claude', 'codex', 'opencode'] as const)('keeps %s normalized tool fields typed through the presentation boundary', agent => {
   const tool = {
     type: 'tool' as const,
     id: 'tool:1',
@@ -30,7 +30,7 @@ test('keeps normalized native tool fields typed through the presentation boundar
   };
   const native: NativeAgentTranscriptState = {
     sessionId: 'session-1',
-    agent: 'opencode',
+    agent,
     revision: 1,
     status: 'live',
     messages: [{

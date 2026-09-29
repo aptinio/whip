@@ -2091,6 +2091,7 @@ const stringConverter = (() => {
 const FfiConverterString = uniffiCreateFfiConverterString(stringConverter);
 
 export enum AgentTranscriptKind {
+  Claude,
   Codex,
   OpenCode,
 }
@@ -2102,8 +2103,10 @@ const FfiConverterTypeAgentTranscriptKind = (() => {
     read(from: RustBuffer): TypeName {
       switch (ordinalConverter.read(from)) {
         case 1:
-          return AgentTranscriptKind.Codex;
+          return AgentTranscriptKind.Claude;
         case 2:
+          return AgentTranscriptKind.Codex;
+        case 3:
           return AgentTranscriptKind.OpenCode;
         default:
           throw new UniffiInternalError.UnexpectedEnumCase();
@@ -2111,10 +2114,12 @@ const FfiConverterTypeAgentTranscriptKind = (() => {
     }
     write(value: TypeName, into: RustBuffer): void {
       switch (value) {
-        case AgentTranscriptKind.Codex:
+        case AgentTranscriptKind.Claude:
           return ordinalConverter.write(1, into);
-        case AgentTranscriptKind.OpenCode:
+        case AgentTranscriptKind.Codex:
           return ordinalConverter.write(2, into);
+        case AgentTranscriptKind.OpenCode:
+          return ordinalConverter.write(3, into);
       }
     }
     allocationSize(value: TypeName): number {

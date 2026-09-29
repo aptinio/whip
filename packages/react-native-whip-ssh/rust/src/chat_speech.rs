@@ -53,9 +53,8 @@ impl ChatSpeechQueue {
         }
         for message in messages {
             // Codex publishes completed response items as parts of one growing
-            // turn message. OpenCode streams parts until message completion.
-            if !message.assistant || (agent == AgentTranscriptKind::OpenCode && !message.completed)
-            {
+            // turn message. Claude and OpenCode publish completed messages.
+            if !message.assistant || (agent != AgentTranscriptKind::Codex && !message.completed) {
                 continue;
             }
             for part in message.prose {
@@ -178,75 +177,59 @@ mod tests {
 
     #[test]
     fn speaks_new_completions_once_without_replaying_history() {
-        let queue = ChatSpeechQueue::new();
-        queue.update(
-            AgentTranscriptKind::OpenCode,
-            true,
-            vec![
-                message("old", true, "History"),
-                message("stream", false, "Hel"),
-            ],
-        );
-        assert_eq!(queue.next(), None);
-        queue.update(
-            AgentTranscriptKind::OpenCode,
-            true,
-            vec![
-                message("old", true, "History"),
-                message("stream", false, "Hello"),
-            ],
-        );
-        assert_eq!(queue.next(), None);
-        queue.update(
-            AgentTranscriptKind::OpenCode,
-            true,
-            vec![
-                message("stream", true, "Hello"),
-                message("next", true, "World"),
-            ],
-        );
-        assert_eq!(queue.next().as_deref(), Some("Hello"));
-        assert_eq!(queue.next().as_deref(), Some("World"));
-        queue.update(
-            AgentTranscriptKind::OpenCode,
-            true,
-            vec![message("stream", true, "Hello again")],
-        );
-        assert_eq!(queue.next(), None);
+        for agent in [AgentTranscriptKind::Claude, AgentTranscriptKind::OpenCode] {
+            let queue = ChatSpeechQueue::new();
+            queue.update(
+                agent,
+                true,
+                vec![
+                    message("old", true, "History"),
+                    message("stream", false, "Hel"),
+                ],
+            );
+            assert_eq!(queue.next(), None);
+            queue.update(
+                agent,
+                true,
+                vec![
+                    message("old", true, "History"),
+                    message("stream", false, "Hello"),
+                ],
+            );
+            assert_eq!(queue.next(), None);
+            queue.update(
+                agent,
+                true,
+                vec![
+                    message("stream", true, "Hello"),
+                    message("next", true, "World"),
+                ],
+            );
+            assert_eq!(queue.next().as_deref(), Some("Hello"));
+            assert_eq!(queue.next().as_deref(), Some("World"));
+            queue.update(agent, true, vec![message("stream", true, "Hello again")]);
+            assert_eq!(queue.next(), None);
+        }
     }
 
     #[test]
     fn reconnect_discards_queue_and_baselines_catchup() {
-        let queue = ChatSpeechQueue::new();
-        queue.update(
-            AgentTranscriptKind::OpenCode,
-            false,
-            vec![message("cache", true, "Cached")],
-        );
-        queue.update(
-            AgentTranscriptKind::OpenCode,
-            true,
-            vec![message("history", true, "History")],
-        );
-        queue.update(
-            AgentTranscriptKind::OpenCode,
-            true,
-            vec![message("new", true, "Queued")],
-        );
-        queue.update(AgentTranscriptKind::OpenCode, false, vec![]);
-        assert_eq!(queue.next(), None);
-        queue.update(
-            AgentTranscriptKind::OpenCode,
-            true,
-            vec![message("catchup", true, "Missed while disconnected")],
-        );
-        assert_eq!(queue.next(), None);
-        queue.update(
-            AgentTranscriptKind::OpenCode,
-            true,
-            vec![message("live", true, "Live again")],
-        );
-        assert_eq!(queue.next().as_deref(), Some("Live again"));
+        for agent in [AgentTranscriptKind::Claude, AgentTranscriptKind::OpenCode] {
+            let queue = ChatSpeechQueue::new();
+            queue.update(agent, false, vec![message("cache", true, "Cached")]);
+            queue.update(agent, true, vec![message("history", true, "History")]);
+            queue.update(agent, true, vec![message("new", true, "Queued")]);
+            queue.update(agent, false, vec![]);
+            assert_eq!(queue.next(), None);
+            queue.update(
+                agent,
+                true,
+                vec![message("catchup", true, "Missed while disconnected")],
+            );
+            assert_eq!(queue.next(), None);
+            queue.update(agent, true, vec![message("live", true, "Live again")]);
+            assert_eq!(queue.next().as_deref(), Some("Live again"));
+        }
     }
 
     #[test]

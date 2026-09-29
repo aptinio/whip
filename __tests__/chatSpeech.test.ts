@@ -115,3 +115,16 @@ test('native speech failure clears focus and reports the error', async () => {
   expect(onError).toHaveBeenCalledWith(new Error('Install a voice'));
   expect(onStopped).toHaveBeenCalledTimes(1);
 });
+
+
+test('Claude speech passes normalized messages and resets reconnect baselines', async () => {
+  stop = listenToChat({ ...target, agent: 'claude', label: 'Claude' }, jest.fn(), jest.fn());
+  await flush();
+  mockListeners.get('one')!(state, true);
+  expect(mockQueues[0].update.mock.calls).toEqual([
+    ['claude', false, []],
+    ['claude', true, state.transcript.messages],
+  ]);
+  mockListeners.get('one')!({ ...state, status: 'stale' });
+  expect(mockQueues[0].update).toHaveBeenLastCalledWith('claude', false, state.transcript.messages);
+});
