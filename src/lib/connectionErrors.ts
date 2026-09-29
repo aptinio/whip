@@ -86,3 +86,9 @@ export function classifyConnectionError(error: unknown): ConnectionErrorKind {
       return 'unknown';
   }
 }
+
+export function isRetryableConnectionError(error: unknown): boolean {
+  const kind = classifyConnectionError(error);
+  return kind === 'connectionRefused' || kind === 'herdrUnavailable'
+    || kind === 'timeout' || kind === 'unreachable';
+}

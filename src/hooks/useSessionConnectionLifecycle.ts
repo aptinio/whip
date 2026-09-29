@@ -9,6 +9,7 @@ import {
   type MutableRefObject,
 } from 'react';
 import type { TFunction } from 'i18next';
+import { AppState } from 'react-native';
 import { disconnectHostRuntime } from 'react-native-whip-ssh';
 import type {
   HostRuntimeState,
@@ -35,6 +36,7 @@ import {
   classifyConnectionError,
   connectionErrorContext,
   connectionErrorTranslationKeys,
+  isRetryableConnectionError,
 } from '../lib/connectionErrors';
 import { hostDisplayName } from '../lib/hostProfiles';
 import { isHerdrProtocolMismatch } from '../lib/herdrProtocol';
@@ -49,6 +51,7 @@ import {
   waitForRuntimeDestruction,
 } from '../lib/sessionRuntimePolicy';
 import { HerdrClient } from '../services/HerdrClient';
+import { herdrSnapshotCache } from '../services/herdrSnapshotCache';
 import {
   networkErrorKind,
   networkErrorMessage,
@@ -78,6 +81,7 @@ function withOptionalAppPerformanceTrace<Result>(
 }
 
 export function useSessionConnectionLifecycle({
+  state,
   stateRef,
   runtimesRef,
   appCoreRef,
@@ -124,6 +128,9 @@ export function useSessionConnectionLifecycle({
   >(() => new Set());
   // React's session projection can lag native ownership while connecting.
   const connectionAttemptsRef = useRef(new Map<string, symbol>());
+  const retryableHostIdsRef = useRef(new Set<string>());
+  const retryAttemptsRef = useRef(new Map<string, number>());
+  const [retryVersion, setRetryVersion] = useState(0);
 
   const getState = useCallback(() => stateRef.current, [stateRef]);
   const getClient = useCallback(
@@ -211,6 +218,9 @@ export function useSessionConnectionLifecycle({
       ) => {
         if (runtimesRef.current.get(sessionId) !== runtime) return;
         const snapshot = runtime.client.snapshotFromHostState(hostState);
+        if (hostState.freshness === 'fresh') {
+          herdrSnapshotCache.schedule(sessionId, snapshot);
+        }
         handleAgentStateChange({
           sessionId,
           snapshot,
@@ -444,6 +454,7 @@ export function useSessionConnectionLifecycle({
         if (navigate) navigation.showTerminal(nextProfile.id);
         return true;
       }
+      if (connectionAttemptsRef.current.has(nextProfile.id)) return false;
       const attempt = Symbol(nextProfile.id);
       connectionAttemptsRef.current.set(nextProfile.id, attempt);
       const isCurrentAttempt = () =>
@@ -540,6 +551,9 @@ export function useSessionConnectionLifecycle({
         connectionStage = 'initial-host-state';
         const initialState = runtime.client.native.hostState();
         const initial = runtime.client.snapshotFromHostState(initialState);
+        if (initialState.freshness === 'fresh') {
+          herdrSnapshotCache.schedule(sessionId, initial);
+        }
         sessionProfilesRef.current.set(saved.host.id, saved.host);
         appCoreRef.current.openSession(
           sessionId,
@@ -570,9 +584,22 @@ export function useSessionConnectionLifecycle({
           if (initial.server.running) navigation.showTerminal(sessionId);
           else navigation.showHerd(sessionId);
         }
+        retryableHostIdsRef.current.delete(sessionId);
+        retryAttemptsRef.current.delete(sessionId);
         return true;
       } catch (connectError) {
         if (!isCurrentAttempt()) return false;
+        if (isRetryableConnectionError(connectError)) {
+          retryableHostIdsRef.current.add(nextProfile.id);
+          retryAttemptsRef.current.set(
+            nextProfile.id,
+            (retryAttemptsRef.current.get(nextProfile.id) ?? 0) + 1,
+          );
+        } else {
+          retryableHostIdsRef.current.delete(nextProfile.id);
+          retryAttemptsRef.current.delete(nextProfile.id);
+        }
+        setRetryVersion(version => version + 1);
         recordNetworkDiagnostic('error', 'host-connect-failed', {
           sessionId: nextProfile.id,
           endpoint: nextProfile.host.trim(),
@@ -644,7 +671,7 @@ export function useSessionConnectionLifecycle({
   );
 
   const connectSavedHost = useCallback(
-    async (host: HostProfile) => {
+    async (host: HostProfile, preserveView = false) => {
       const existing = stateRef.current.sessions.find(
         session => session.hostId === host.id,
       );
@@ -652,47 +679,102 @@ export function useSessionConnectionLifecycle({
         ? runtimesRef.current.get(existing.id)
         : undefined;
       const action = savedHostConnectionAction(
-        existing?.status,
         Boolean(existingRuntime),
+        connectionAttemptsRef.current.has(host.id),
       );
       if (existing && action === 'select') {
-        select(existing.id, 'terminal');
+        if (!preserveView) select(existing.id, existing.status === 'ready' ? 'terminal' : 'herd');
         refresh(existing.id).catch(error =>
           scheduleReconnect(existing.id, error),
         );
         return;
       }
       if (existing && action === 'wait') {
-        select(existing.id, 'terminal');
+        if (!preserveView) select(existing.id, 'herd');
         return;
+      }
+      if (existing) {
+        if (!preserveView) select(existing.id, 'herd');
+      } else {
+        sessionProfilesRef.current.set(host.id, host);
+        commitAppCore(appCoreRef.current.openSession(host.id, host.id, true));
+        if (!preserveView) navigation.showHerd(host.id);
       }
       hosts.setError(null);
       trackHostConnection(host.id, true);
       try {
         const profile = await hosts.loadProfileForConnection(host);
-        if (!profile) return;
+        if (!profile) {
+          retryableHostIdsRef.current.delete(host.id);
+          commitAppCore(appCoreRef.current.setPlaceholderConnection(
+            host.id,
+            'error',
+            t('app.enterCredential'),
+          ));
+          return;
+        }
         await connect(profile, {
           persistProfile: false,
+          navigate: false,
+          promptForUnknownHosts: true,
           trackConnecting: false,
-          reuseConnectingSession: Boolean(existing),
+          reuseConnectingSession: true,
         });
       } catch (connectError) {
+        retryableHostIdsRef.current.delete(host.id);
         hosts.setError(String(connectError));
+        commitAppCore(appCoreRef.current.setPlaceholderConnection(
+          host.id,
+          'error',
+          String(connectError),
+        ));
       } finally {
         trackHostConnection(host.id, false);
       }
     },
     [
+      appCoreRef,
+      commitAppCore,
       connect,
       hosts,
+      navigation,
       refresh,
       runtimesRef,
       scheduleReconnect,
       select,
+      sessionProfilesRef,
       stateRef,
+      t,
       trackHostConnection,
     ],
   );
+
+  const retrySelectedHost = useEffectEvent((hostId: string) => {
+    if (AppState.currentState !== 'active') return;
+    const current = stateRef.current.sessions.find(session => session.id === hostId);
+    if (current?.status !== 'error' || stateRef.current.activeSessionId !== hostId
+      || !retryableHostIdsRef.current.has(hostId)
+      || connectionAttemptsRef.current.has(hostId)) return;
+    const host = hosts.getHosts().find(item => item.id === hostId);
+    if (host) connectSavedHost(host, true).catch(error => hosts.setError(String(error)));
+  });
+  const retrySession = state.sessions.find(session =>
+    session.id === state.activeSessionId && session.status === 'error',
+  );
+  useEffect(() => {
+    if (!retrySession || !retryableHostIdsRef.current.has(retrySession.id)
+      || connectingHostIds.has(retrySession.id)) return;
+    const attempts = retryAttemptsRef.current.get(retrySession.id) ?? 1;
+    const delay = Math.min(30_000, 2_000 * (2 ** Math.min(attempts - 1, 4)));
+    const timer = setTimeout(() => retrySelectedHost(retrySession.id), delay);
+    return () => clearTimeout(timer);
+  }, [connectingHostIds, retrySession, retryVersion]);
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', next => {
+      if (next === 'active') setRetryVersion(version => version + 1);
+    });
+    return () => subscription.remove();
+  }, []);
 
   return useMemo(
     () => ({

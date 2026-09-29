@@ -92,6 +92,11 @@ test('persists the spinner frame-rate choice across reloads', async () => {
   }
 });
 
+test('opens Hosts when the saved last tab was the removed Chats tab', async () => {
+  mockGetItem.mockResolvedValueOnce(JSON.stringify({ lastTab: 'chats' }));
+  await expect(loadDevicePreferences()).resolves.toMatchObject({ lastTab: 'hosts' });
+});
+
 test('migrates the old 11px mobile default to the usable 8px geometry', async () => {
   mockGetItem
     .mockResolvedValueOnce(null)

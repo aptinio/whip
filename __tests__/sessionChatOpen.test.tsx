@@ -2,6 +2,7 @@ import type { ComponentProps } from 'react';
 import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 import { SessionScreen } from '../src/components/SessionScreen';
 import { agentChatCache } from '../src/services/agentChatCache';
+import { readCachedAgentTranscript } from 'react-native-whip-ssh';
 import { agentTranscriptService } from '../src/services/NativeTranscriptService';
 import { listenToChat } from '../src/services/chatSpeech';
 import type { ChatAgent } from '../src/lib/agentChatSession';
@@ -124,7 +125,9 @@ jest.mock('../src/theme', () => ({
   statusColor: () => '',
 }));
 
-type Props = ComponentProps<typeof SessionScreen>;
+type Props = ComponentProps<typeof SessionScreen> & {
+  client: NonNullable<ComponentProps<typeof SessionScreen>['client']>;
+};
 const mockChatFrames: Array<{ visible: boolean; chat: boolean }> = [];
 const mockVolumeKeyListeners = new Set<(key: 'up' | 'down') => void>();
 const mockAppStateListeners = new Set<(state: string) => void>();
@@ -275,6 +278,50 @@ beforeEach(() => {
   jest.mocked(listenToChat).mockClear();
   jest.spyOn(console, 'info').mockImplementation(() => {});
   jest.spyOn(agentChatCache, 'loadNative').mockResolvedValue(null);
+});
+
+test('offline terminal shows cached chat in the usual Chat viewport', async () => {
+  const host = setup('codex');
+  const blob = new Uint8Array([1, 2, 3]).buffer;
+  jest.spyOn(agentChatCache, 'listNative').mockResolvedValue([{
+    namespace: 'host-1',
+    key: 'cached-key',
+    agent: 'codex',
+    sessionId: host.pane.agent_session!.value,
+    updatedAt: 1,
+    cacheBytes: 3,
+  }]);
+  jest.mocked(agentChatCache.loadNative).mockResolvedValue(blob);
+  jest.mocked(readCachedAgentTranscript).mockReturnValue({
+    sessionId: host.pane.agent_session!.value,
+    agent: 'codex',
+    revision: 1,
+    status: 'stale',
+    messages: [],
+    turns: [],
+  });
+  act(() => {
+    renderer = create(<SessionScreen
+      {...host.props}
+      client={null}
+      terminalTargets={[]}
+      terminalState={{
+        activeTerminalId: host.pane.terminal_id,
+        sessions: [{
+          ...host.props.terminalState.sessions[0],
+          status: 'disconnected',
+        }],
+      }}
+    />);
+  });
+  await act(async () => {
+    await control().onPress();
+  });
+  expect(agentChatCache.loadNative).toHaveBeenCalledWith('cached-key');
+  expect(ui('TerminalScreen').props.chatViewEnabled).toBe(true);
+  expect(ui('AgentChatView').props.state.transcript.sessionId)
+    .toBe(host.pane.agent_session!.value);
+  expect(host.native.openAgentChat).not.toHaveBeenCalled();
 });
 
 test('volume key tab navigation uses the current action after settings change', async () => {
@@ -913,7 +960,7 @@ describe.each(['codex', 'opencode'] as const)('%s SessionScreen', agent => {
     const binding = await openReadyChat(host, agent);
     revealChat();
     const archive = { namespace: 'host-1', key: binding.transcriptKey, blob: new Uint8Array([9, 8]).buffer };
-    const save = jest.spyOn(agentChatCache, 'saveNative').mockResolvedValue();
+    const save = jest.spyOn(agentChatCache, 'saveNative').mockResolvedValue(true);
     host.native.detachAgentChat.mockReturnValue(archive);
     const visits = addCachePressure(host);
     host.injected.length = 0;

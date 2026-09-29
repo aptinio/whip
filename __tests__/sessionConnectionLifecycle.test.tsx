@@ -16,6 +16,9 @@ jest.mock('react-native-whip-ssh', () => require('./mockWhipSsh').createMockWhip
 jest.mock('../src/services/hostProfiles', () => ({
   loadJumpHostConnectionProfiles: jest.fn(async () => []),
 }));
+jest.mock('../src/services/herdrSnapshotCache', () => ({
+  herdrSnapshotCache: { schedule: jest.fn() },
+}));
 jest.mock('../src/services/knownHosts', () => ({
   hostKeyErrorHost: () => undefined,
   parseUnknownHostKey: () => null,
@@ -85,6 +88,18 @@ function setup() {
     },
     attachRuntime: jest.fn(),
     detachRuntime: jest.fn(),
+    selectSession: (id: string) => {
+      view = { ...view, activeSessionId: id };
+      return view;
+    },
+    setPlaceholderConnection: (id: string, status: 'connecting' | 'error') => {
+      view = {
+        ...view,
+        sessions: view.sessions.map(session => session.id === id
+          ? { ...session, connectionStatus: status } : session),
+      };
+      return view;
+    },
     closeSession: (id: string) => {
       view = { ...view, sessions: view.sessions.filter(session => session.id !== id) };
       return view;
@@ -94,6 +109,7 @@ function setup() {
   const setError = jest.fn();
   const navigate = jest.fn();
   const options = {
+    state: emptyLiveHostSessions,
     stateRef, runtimesRef, appCoreRef: { current: core },
     sessionProfilesRef: { current: new Map([[profile.id, profile]]) },
     commitAppCore: (next: AppCoreProjection) => {
@@ -108,7 +124,7 @@ function setup() {
       loadProfileForConnection: async () => profile,
       setError, closeEditor: jest.fn(), markDisconnected: jest.fn(),
     },
-    navigation: { clearSessionView: jest.fn(), selectTab: navigate, showHerd: navigate, showTerminal: navigate },
+    navigation: { clearSessionView: jest.fn(), selectPane: jest.fn(), selectTab: navigate, showHerd: navigate, showTerminal: navigate },
     security: { isKeyProtectionEnabled: () => false },
     terminals: { restore, remove: jest.fn() },
     clearLatency: jest.fn(),
@@ -173,6 +189,57 @@ test('opening an attached runtime reuses native ownership when the React project
   expect(mockNativeHosts.size).toBe(1);
   expect(runtimesRef.current.size).toBe(1);
   expect(stateRef.current.sessions).toHaveLength(1);
+});
+
+test('tapping a restored placeholder starts its host before background restore reaches it', async () => {
+  const { core, stateRef } = setup();
+  const placeholder = core.openSession(profile.id, profile.id);
+  core.setPlaceholderConnection(profile.id, 'connecting');
+  stateRef.current = projectAppCoreSessions(
+    core.view(), new Map([[profile.id, profile]]), stateRef.current, new Map(),
+  );
+  expect(placeholder.sessions).toHaveLength(1);
+
+  await act(async () => { await lifecycle.connectSavedHost(profile); });
+
+  expect(mockClients).toHaveLength(1);
+  expect(mockClients[0].connect).toHaveBeenCalledWith(profile, []);
+  expect(stateRef.current.sessions[0].status).toBe('ready');
+});
+
+test('an automatic retry keeps the cached terminal view in place', async () => {
+  const { core, stateRef, navigate } = setup();
+  core.openSession(profile.id, profile.id);
+  core.setPlaceholderConnection(profile.id, 'error');
+  stateRef.current = projectAppCoreSessions(
+    core.view(), new Map([[profile.id, profile]]), stateRef.current, new Map(),
+  );
+
+  await act(async () => { await lifecycle.connectSavedHost(profile, true); });
+
+  expect(mockClients[0].connect).toHaveBeenCalled();
+  expect(navigate).not.toHaveBeenCalled();
+});
+
+test('a second restore does not replace an SSH attempt still loading credentials', async () => {
+  setup();
+  const loading = deferred<undefined>();
+  const credentials = deferred<ConnectionProfile[]>();
+  jest.mocked(loadJumpHostConnectionProfiles).mockImplementationOnce(() => {
+    loading.resolve(undefined);
+    return credentials.promise;
+  });
+  let first!: Promise<boolean>;
+  await act(async () => {
+    first = lifecycle.connect(profile);
+    await loading.promise;
+  });
+  await act(async () => { expect(await lifecycle.connect(profile)).toBe(false); });
+  await act(async () => {
+    credentials.resolve([]);
+    expect(await first).toBe(true);
+  });
+  expect(mockClients).toHaveLength(1);
 });
 
 test('closing during credential loading cancels the attempt before it creates SSH', async () => {

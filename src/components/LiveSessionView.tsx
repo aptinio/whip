@@ -18,7 +18,7 @@ import { SessionScreen } from './SessionScreen';
 
 interface Props {
   session: LiveHostSession;
-  client: HerdrClient;
+  client: HerdrClient | null;
   visible: boolean;
   ttsEnabled: boolean;
   latencyMs: number | null;

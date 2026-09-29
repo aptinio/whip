@@ -34,7 +34,7 @@ interface Options {
   terminalId: string | null;
   pane: PaneInfo | undefined;
   visible: boolean;
-  client: Pick<HerdrClient, 'native' | 'snapshot'>;
+  client: Pick<HerdrClient, 'native' | 'snapshot'> | null;
   onBound: (projection: BoundChat) => void;
   onRefresh: () => Promise<void>;
 }
@@ -66,7 +66,7 @@ export function useAgentChatOpen(options: Options) {
   }, [hostSessionId, terminalId, pane?.pane_id, visible, client, cancel]);
 
   const run = async (integration?: PendingAgentIntegration) => {
-    if (!terminalId || !visible || (integration && installingRef.current))
+    if (!client || !terminalId || !visible || (integration && installingRef.current))
       return;
     installingRef.current = Boolean(integration);
     const request = ++generation.current;

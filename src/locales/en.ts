@@ -41,14 +41,12 @@ export const en = {
 
   'nav.hosts': 'Hosts',
   'nav.herd': 'Herd',
-  'nav.chats': 'Chats',
   'nav.terminal': 'Terminal',
   'nav.more': 'More',
   'savedChats.title': 'Saved chats',
-  'savedChats.back': 'Back to saved chats',
-  'savedChats.refresh': 'Refresh saved chats',
+  'savedChats.back': 'Back to host',
   'savedChats.empty': 'Saved conversations will appear here.',
-  'savedChats.offline': 'Saved copy · Connect to the host for updates.',
+  'cachedHost.empty': 'No saved host activity yet.',
   'savedChats.missing': 'This saved conversation is no longer available.',
   'savedChats.filesUnavailable': 'Connect to the host to open files.',
 

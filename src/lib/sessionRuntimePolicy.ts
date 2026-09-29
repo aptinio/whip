@@ -3,11 +3,11 @@ import { settledPromise } from './promises';
 export type SavedHostConnectionAction = 'select' | 'wait' | 'connect';
 
 export function savedHostConnectionAction(
-  status: string | undefined,
   hasRuntime: boolean,
+  hasAttempt: boolean,
 ): SavedHostConnectionAction {
   if (hasRuntime) return 'select';
-  return status === 'connecting' ? 'wait' : 'connect';
+  return hasAttempt ? 'wait' : 'connect';
 }
 
 export interface ReleasableRuntime {

@@ -73,6 +73,7 @@ import { WorkspaceRail } from './WorkspaceRail';
 const HERD_AGENT_ROW_MIN_HEIGHT = 92;
 
 interface Props {
+  offline?: boolean;
   queues: HerdHostQueue[];
   agents: HerdQueueAgent[];
   sessions: LiveSessionRailItem[];
@@ -100,6 +101,7 @@ interface Props {
 }
 
 export function HerdScreen({
+  offline = false,
   queues,
   agents,
   sessions,
@@ -215,8 +217,10 @@ export function HerdScreen({
     setCommandRunnerOpen(false);
     if (workspaceId && selectedQueue) {
       onWorkspaceFilterChange(selectedQueue.id, workspaceId);
-      onSelectWorkspace(selectedQueue.id, workspaceId);
-      onFocusWorkspace(selectedQueue.id, workspaceId).catch(showHerdrError);
+      if (!offline) {
+        onSelectWorkspace(selectedQueue.id, workspaceId);
+        onFocusWorkspace(selectedQueue.id, workspaceId).catch(showHerdrError);
+      }
     } else if (selectedQueue) {
       onWorkspaceFilterChange(selectedQueue.id, null);
     }
@@ -348,11 +352,12 @@ export function HerdScreen({
         showSpace={selectedWorkspaceId === null}
         onOpenTerminal={onOpenTerminal}
         onOpenFiles={onOpenFiles}
+        readOnly={offline}
         closing={closingTabKey === `${item.hostId}:${item.agent.tab_id}`}
         onCloseTab={closeTab}
       />
     ),
-    [closeTab, closingTabKey, onOpenFiles, onOpenTerminal, resolvedHostId, selectedWorkspaceId],
+    [closeTab, closingTabKey, offline, onOpenFiles, onOpenTerminal, resolvedHostId, selectedWorkspaceId],
   );
 
   return (
@@ -365,6 +370,7 @@ export function HerdScreen({
           workspaces={selectedQueue.workspaces}
           selectedWorkspaceId={selectedWorkspaceId}
           busy={workspaceBusy || !selectedQueue.running}
+          readOnly={offline}
           onSelect={selectWorkspace}
           onNew={openNewWorkspace}
           onRename={openRenameWorkspace}
@@ -441,7 +447,7 @@ export function HerdScreen({
               <Icon as={Search} size={16} />
               <Text>{t('herd.search')}</Text>
             </Button>
-            {selectedQueue?.running && selectedWorkspace ? (
+            {!offline && selectedQueue?.running && selectedWorkspace ? (
               <>
                 <Button
                   accessibilityLabel={t('herd.runCommand')}
@@ -598,6 +604,8 @@ export function HerdScreen({
                         selectedWorkspace.label ||
                         selectedWorkspace.workspace_id,
                     })
+                  : offline
+                  ? t('cachedHost.empty')
                   : selectedQueue
                   ? t('herd.noAgentsHost', { host: selectedQueue.label })
                   : t('herd.noAgentsMerged')}
@@ -768,6 +776,7 @@ const AgentRow = memo(
     showHost,
     showSpace,
     closing,
+    readOnly,
     onCloseTab,
     onOpenTerminal,
     onOpenFiles,
@@ -776,6 +785,7 @@ const AgentRow = memo(
     showHost: boolean;
     showSpace: boolean;
     closing: boolean;
+    readOnly: boolean;
     onCloseTab: (item: HerdQueueAgent) => Promise<boolean>;
     onOpenTerminal: (hostId: string, agent: AgentInfo) => void;
     onOpenFiles: (hostId: string, agent: AgentInfo) => void;
@@ -858,6 +868,7 @@ const AgentRow = memo(
     const panResponder = useRef(
       PanResponder.create({
         onMoveShouldSetPanResponderCapture: (_event, gesture) =>
+          !readOnly &&
           !closingRef.current &&
           shouldClaimHerdTabSwipe(gesture.dx, gesture.dy),
         onPanResponderGrant: () => {
@@ -915,7 +926,7 @@ const AgentRow = memo(
           >
             <GlassBackdrop shapeClassName="rounded-xl" />
             <Button
-              accessibilityActions={[
+              accessibilityActions={readOnly ? undefined : [
                 {
                   name: 'open-files',
                   label: t('terminal.openFiles'),
@@ -933,6 +944,7 @@ const AgentRow = memo(
               disabled={closing}
               variant="ghost"
               onAccessibilityAction={event => {
+                if (readOnly) return;
                 if (event.nativeEvent.actionName === 'open-files') {
                   onOpenFiles(item.hostId, agent);
                 } else if (event.nativeEvent.actionName === 'close-tab') {
@@ -940,12 +952,12 @@ const AgentRow = memo(
                 }
               }}
               onPress={hapticPress(() => onOpenTerminal(item.hostId, agent))}
-              onLongPress={hapticPress(() => onOpenFiles(item.hostId, agent))}
+              onLongPress={readOnly ? undefined : hapticPress(() => onOpenFiles(item.hostId, agent))}
             >
               <AgentStatusMedallion
                 accessibilityLabel={`${primaryLabel}: ${stateLabel}`}
                 color={tone}
-                connected
+                connected={!readOnly}
                 glyphSize={18}
                 size={40}
                 status={agent.agent_status}

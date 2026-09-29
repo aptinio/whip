@@ -1,4 +1,4 @@
-import { useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { BlurTargetView } from 'expo-blur';
 import { Platform, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -18,12 +18,11 @@ import { effectiveDevicePreferences } from '../billing/effectiveSettings';
 import { simulateDeveloperMembership } from '../billing/developerMembership';
 import { resolveAccessTier } from '../billing/tiers';
 import type { WhipEntitlementsController } from '../billing/useWhipEntitlements';
-import { resolveHerdProjectionRequest, type HerdHostQueue } from '../herdQueue';
+import { cachedHerdView, resolveHerdProjectionRequest, type HerdHostQueue } from '../herdQueue';
 import { aggregateAgentStatus } from '../lib/agentStatusAggregate';
 import { shouldEnableAppGlass } from '../lib/appGlass';
 import { hostDisplayName } from '../lib/hostProfiles';
 import { hostRuntimeSummary } from '../lib/hostRuntimeSummary';
-import { hostSessionRecoveryState } from '../lib/hostSessionRecovery';
 import {
   isLiveHostSshConnected,
   visibleLiveHostLatency,
@@ -34,7 +33,10 @@ import {
   reportBackgroundFailure,
 } from '../services/backgroundOperations';
 import { startBackgroundMonitoring } from '../services/backgroundMonitoring';
+import { herdrSnapshotCache } from '../services/herdrSnapshotCache';
 import { useTheme } from '../theme';
+import { cachedTerminalSessions } from '../terminalSessions';
+import type { HerdrSnapshot } from '../types';
 import type { LiveSessionRailItem } from './LiveSessionRail';
 import { AgentStatusAnimationProvider } from './app-ui';
 import { AppBackground } from './AppBackground';
@@ -48,12 +50,10 @@ import { BottomNavigation } from './BottomNavigation';
 import { ConnectRequiredScreen } from './ConnectRequiredScreen';
 import { GlassProvider } from './GlassSurface';
 import { HerdScreen } from './HerdScreen';
-import { HostSessionRecoveryScreen } from './HostSessionRecoveryScreen';
 import { HostsScreen } from './HostsScreen';
 import { LiveSessionView } from './LiveSessionView';
 import { MoreScreen } from './MoreScreen';
 import { ScreenUpdates } from './ScreenUpdates';
-import { SavedChatsScreen } from './SavedChatsScreen';
 
 const NavigationBlurTarget = Platform.OS === 'android' ? View : BlurTargetView;
 
@@ -122,17 +122,50 @@ export function AppShell({
     terminalControlUsage,
   } = effectivePreferences;
   const activeSession = sessions.activeSession;
+  const liveClient = activeSession?.status === 'ready'
+    ? sessions.activeClient ?? null
+    : null;
+  const [cachedTerminalSelection, setCachedTerminalSelection] = useState<{
+    sessionId: string;
+    paneId: string;
+  } | null>(null);
+  useEffect(() => {
+    if (!liveClient || !activeSession ||
+        cachedTerminalSelection?.sessionId !== activeSession.id) return;
+    const pane = activeSession.snapshot.panes.find(
+      item => item.pane_id === cachedTerminalSelection.paneId,
+    );
+    if (!pane) return;
+    sessions.activatePaneTerminal(activeSession.id, pane);
+    setCachedTerminalSelection(null);
+  }, [activeSession, cachedTerminalSelection, liveClient, sessions]);
+  const [cachedSnapshots, setCachedSnapshots] = useState<Record<string, HerdrSnapshot>>({});
+  const offlineSessionIds = sessions.state.sessions
+    .filter(session => session.status !== 'ready')
+    .map(session => session.id)
+    .join('\n');
+  useEffect(() => {
+    let current = true;
+    for (const hostId of offlineSessionIds.split('\n').filter(Boolean)) {
+      const load = herdrSnapshotCache.load(hostId).then(cached => {
+        if (current && cached) {
+          setCachedSnapshots(previous => ({ ...previous, [hostId]: cached.snapshot }));
+        }
+      });
+      reportBackgroundFailure(load, 'herdr-snapshot-cache-load');
+    }
+    return () => { current = false; };
+  }, [offlineSessionIds]);
+  const visibleSnapshot = (session: NonNullable<typeof activeSession>) =>
+    session.snapshot.agents.length || session.snapshot.workspaces.length
+      || session.snapshot.tabs.length
+      ? session.snapshot
+      : cachedSnapshots[session.id] ?? session.snapshot;
   const activeTelemetry = activeSession
     ? telemetry.get(activeSession.id)
     : null;
   const terminalVisible =
     navigation.state.tab === 'terminal' && !hosts.editorProfile;
-  const terminalRecovery = hostSessionRecoveryState({
-    activeClient: sessions.activeClient,
-    activeSession,
-    connectingHostIds: sessions.connectingHostIds,
-    terminalVisible,
-  });
   const immersiveTerminal = terminalVisible && Boolean(activeSession);
   const activeTerminalVisible = Boolean(
     immersiveTerminal &&
@@ -156,7 +189,19 @@ export function AppShell({
       navigation.herdHostFilterId,
       navigation.herdWorkspaceFilterIds,
     );
-    const herdProjection = sessions.herdView(
+    const scopedSession = sessions.state.sessions.find(
+      session => session.id === herdProjectionRequest.hostId,
+    );
+    const offline = Boolean(scopedSession && scopedSession.status !== 'ready');
+    const herdProjection = offline && scopedSession
+      ? cachedHerdView(
+          scopedSession.id,
+          hostDisplayName(scopedSession.host),
+          scopedSession.host.host,
+          visibleSnapshot(scopedSession),
+          herdProjectionRequest.workspaceId,
+        )
+      : sessions.herdView(
       sessions.state.sessions.map(session => ({
         sessionId: session.id,
         hostLabel: hostDisplayName(session.host),
@@ -164,7 +209,7 @@ export function AppShell({
       })),
       herdProjectionRequest.hostId ?? undefined,
       herdProjectionRequest.workspaceId ?? undefined,
-    );
+      );
     const railSessions: LiveSessionRailItem[] = sessions.state.sessions.map(
       session => ({
         hostId: session.id,
@@ -183,13 +228,31 @@ export function AppShell({
         queues={herdQueues}
         agents={herdProjection.agents}
         sessions={railSessions}
-        selectedHostId={herdProjection.selectedHostId ?? null}
-        workspaceFilterId={herdProjection.selectedWorkspaceId ?? null}
+        selectedHostId={offline
+          ? scopedSession?.id ?? null
+          : 'selectedHostId' in herdProjection
+            && typeof herdProjection.selectedHostId === 'string'
+              ? herdProjection.selectedHostId : null}
+        workspaceFilterId={offline
+          ? herdProjectionRequest.workspaceId
+          : 'selectedWorkspaceId' in herdProjection
+            && typeof herdProjection.selectedWorkspaceId === 'string'
+              ? herdProjection.selectedWorkspaceId : null}
+        offline={offline}
         agentCommand={agentCommand}
         commandHistory={history.entries}
         onSelectHost={sessionId => {
           navigation.selectHerdHost(sessionId);
-          if (sessionId) sessions.select(sessionId, 'herd');
+          if (!sessionId) return;
+          const selected = sessions.state.sessions.find(session => session.id === sessionId);
+          if (selected && selected.status !== 'ready' && !sessions.getClient(sessionId)) {
+            reportBackgroundFailure(
+              sessions.connectSavedHost(selected.host),
+              'herd-host-connect',
+            );
+          } else {
+            sessions.select(sessionId, 'herd');
+          }
         }}
         onWorkspaceFilterChange={navigation.setHerdWorkspaceFilter}
         onCloseHost={sessions.close}
@@ -201,12 +264,23 @@ export function AppShell({
         onCloseWorkspace={sessions.closeWorkspace}
         onCloseTab={sessions.closeTab}
         onRefresh={async () => {
+          if (offline && scopedSession) {
+            await sessions.connectSavedHost(scopedSession.host);
+            return;
+          }
           const ids = herdProjectionRequest.hostId
             ? [herdProjectionRequest.hostId]
             : sessions.state.sessions.map(session => session.id);
           await Promise.all(ids.map(sessions.refresh));
         }}
-        onOpenTerminal={sessions.openAgentTerminal}
+        onOpenTerminal={(sessionId, agent) => {
+          if (offline) {
+            sessions.select(sessionId, 'terminal');
+            setCachedTerminalSelection({ sessionId, paneId: agent.pane_id });
+          } else {
+            sessions.openAgentTerminal(sessionId, agent);
+          }
+        }}
         onOpenFiles={(sessionId, agent) =>
           openAgentFiles(sessionId, agent.pane_id)
         }
@@ -378,19 +452,6 @@ export function AppShell({
                         {renderHerd}
                       </ScreenUpdates>
                     </AgentStatusAnimationProvider>
-                  </View>
-                ) : null}
-
-                {navigation.mountedTabs.has('chats') ? (
-                  <View
-                    importantForAccessibility={navigation.state.tab === 'chats' ? 'auto' : 'no-hide-descendants'}
-                    pointerEvents={navigation.state.tab === 'chats' ? 'auto' : 'none'}
-                    style={navigation.state.tab === 'chats' ? styles.tabScreen : styles.hiddenTab}
-                  >
-                    <SavedChatsScreen
-                      visible={navigation.state.tab === 'chats'}
-                      hosts={hosts.hosts}
-                    />
                   </View>
                 ) : null}
 
@@ -603,12 +664,16 @@ export function AppShell({
               </View>
 
               {navigation.mountedTabs.has('terminal') &&
-                activeSession &&
-                sessions.activeClient && (
+                activeSession && (
                   <AgentStatusAnimationProvider enabled={terminalVisible}>
                     <LiveSessionView
-                      session={activeSession}
-                      client={sessions.activeClient}
+                      session={{
+                        ...activeSession,
+                        snapshot: liveClient
+                          ? activeSession.snapshot
+                          : visibleSnapshot(activeSession),
+                      }}
+                      client={liveClient}
                       visible={terminalVisible}
                       ttsEnabled={ttsEnabled}
                       latencyMs={visibleLiveHostLatency(
@@ -619,7 +684,14 @@ export function AppShell({
                         activeSession.status === 'ready' &&
                         Boolean(activeTelemetry?.latencyWarning.active)
                       }
-                      terminalState={terminals.get(activeSession.id)}
+                      terminalState={liveClient
+                        ? terminals.get(activeSession.id)
+                        : cachedTerminalSessions(
+                            visibleSnapshot(activeSession),
+                            cachedTerminalSelection?.sessionId === activeSession.id
+                              ? cachedTerminalSelection.paneId
+                              : null,
+                          )}
                       terminalTargets={sessions.terminalTargets}
                       appBackgroundImageUri={appBackgroundImageUri}
                       appBackgroundDimming={appBackgroundDimming}
@@ -651,33 +723,30 @@ export function AppShell({
                       onExit={() =>
                         sessions.exitTerminalToHerd(activeSession.id)
                       }
-                      onRefresh={sessions.refresh}
+                      onRefresh={async sessionId => {
+                        if (activeSession.status === 'ready') await sessions.refresh(sessionId);
+                        else await sessions.connectSavedHost(activeSession.host);
+                      }}
                       onOpenPane={(sessionId, pane) => {
                         sessions.select(sessionId, 'terminal');
-                        navigation.selectPane(pane.pane_id);
+                        if (activeSession.status === 'ready') {
+                          navigation.selectPane(pane.pane_id);
+                        } else {
+                          setCachedTerminalSelection({ sessionId, paneId: pane.pane_id });
+                        }
                       }}
-                      onActivateTerminal={sessions.activatePaneTerminal}
-                      onCloseTerminal={sessions.closeTerminal}
+                      onActivateTerminal={(sessionId, pane) => {
+                        if (activeSession.status === 'ready') sessions.activatePaneTerminal(sessionId, pane);
+                        else setCachedTerminalSelection({ sessionId, paneId: pane.pane_id });
+                      }}
+                      onCloseTerminal={(sessionId, terminalId) => {
+                        if (activeSession.status === 'ready') sessions.closeTerminal(sessionId, terminalId);
+                      }}
                       onTerminalStatus={terminals.updateStatus}
                       onTerminalFontSizeChange={terminals.updateFontSize}
                     />
                   </AgentStatusAnimationProvider>
                 )}
-              {navigation.mountedTabs.has('terminal') && terminalRecovery && (
-                <HostSessionRecoveryScreen
-                  busy={terminalRecovery.busy}
-                  error={terminalRecovery.error}
-                  host={hostDisplayName(terminalRecovery.session.host)}
-                  onBack={() =>
-                    sessions.exitTerminalToHerd(terminalRecovery.session.id)
-                  }
-                  onReconnect={() => {
-                    sessions
-                      .connectSavedHost(terminalRecovery.session.host)
-                      .catch(error => hosts.setError(String(error)));
-                  }}
-                />
-              )}
             </NavigationBlurTarget>
 
             {!immersiveTerminal && !overlaysVisible && (

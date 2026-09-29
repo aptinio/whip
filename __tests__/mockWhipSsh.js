@@ -593,6 +593,7 @@ function createMockWhipSshModule() {
     createHostRuntime: api.createHostRuntime,
     getHostRuntime: api.getHostRuntime,
     disconnectHostRuntime: api.disconnectHostRuntime,
+    readCachedAgentTranscript: jest.fn(),
     NativeHostProfileStore: MockNativeHostProfileStore,
     NativeKnownHostStore: MockNativeKnownHostStore,
   };

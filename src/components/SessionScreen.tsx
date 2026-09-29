@@ -26,6 +26,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTranslation } from 'react-i18next';
+import { readCachedAgentTranscript } from 'react-native-whip-ssh';
 import WebView from 'react-native-webview';
 import {
   orderByAgentStatusPriority,
@@ -65,7 +66,10 @@ import {
   agentChatControlState,
   chatAgentForPane,
   chatAgentDisplayName,
+  type ChatAgent,
 } from '../lib/agentChatSession';
+import { agentChatStateFromNative } from '../lib/nativeAgentTranscript';
+import { agentChatCache } from '../services/agentChatCache';
 import {
   AgentChatPresentationPhase,
   chatPresentationLoading,
@@ -140,7 +144,7 @@ interface Props {
   visible: boolean;
   ttsEnabled: boolean;
   snapshot: HerdrSnapshot;
-  client: HerdrClient;
+  client: HerdrClient | null;
   terminalState: TerminalSessionsState;
   terminalTargets: readonly TerminalRenderTarget[];
   appBackgroundImageUri: string | null;
@@ -233,6 +237,15 @@ export function SessionScreen({
   const [editingPaneId, setEditingPaneId] = useState<string | null>(null);
   const [name, setName] = useState('');
   const [busy, setBusy] = useState(false);
+  const [savedChat, setSavedChat] = useState<{
+    paneId: string;
+    agent: ChatAgent;
+    state: AgentChatState;
+  } | null>(null);
+  const [savedChatOpen, setSavedChatOpen] = useState(false);
+  const [savedChatLoading, setSavedChatLoading] = useState(false);
+  const [savedChatError, setSavedChatError] = useState<string | null>(null);
+  const savedChatGeneration = useRef(0);
   const [terminalSessionChromeVisible, setTerminalSessionChromeVisible] =
     useState(true);
   const [appAlert, setAppAlert] = useState<AppAlertContent | null>(null);
@@ -378,6 +391,49 @@ export function SessionScreen({
     terminalState.sessions,
     terminalState.activeTerminalId,
   );
+  const activePaneId = activePane?.pane_id;
+  const activePaneWorkspaceId = activePane?.workspace_id;
+  const activePaneTabId = activePane?.tab_id;
+  useEffect(() => {
+    if (client || !activePaneId) return;
+    setWorkspaceId(activePaneWorkspaceId || '');
+    setTabId(activePaneTabId || '');
+  }, [activePaneId, activePaneTabId, activePaneWorkspaceId, client]);
+  useEffect(() => {
+    savedChatGeneration.current += 1;
+    setSavedChatOpen(false);
+    setSavedChat(null);
+    setSavedChatError(null);
+    setSavedChatLoading(false);
+  }, [activePane?.pane_id, hostSessionId]);
+  const openSavedChat = async () => {
+    const agent = chatAgentForPane(activePane);
+    const sessionId = activePane?.agent_session?.value;
+    const generation = ++savedChatGeneration.current;
+    setSavedChatOpen(true);
+    setSavedChatError(null);
+    if (!activePane || !agent || !sessionId) {
+      setSavedChatError(t('cachedHost.empty'));
+      return;
+    }
+    if (savedChat?.paneId === activePane?.pane_id) return;
+    setSavedChatLoading(true);
+    try {
+      const chats = await agentChatCache.listNative();
+      const chat = chats.find(item => item.namespace === hostSessionId
+        && item.agent === agent && item.sessionId === sessionId);
+      if (!chat) throw new Error(t('cachedHost.empty'));
+      const blob = await agentChatCache.loadNative(chat.key);
+      if (!blob) throw new Error(t('savedChats.missing'));
+      if (generation !== savedChatGeneration.current) return;
+      const restored = agentChatStateFromNative(readCachedAgentTranscript(agent, sessionId, blob));
+      setSavedChat({ paneId: activePane.pane_id, agent, state: restored });
+    } catch (error) {
+      if (generation === savedChatGeneration.current) setSavedChatError(String(error));
+    } finally {
+      if (generation === savedChatGeneration.current) setSavedChatLoading(false);
+    }
+  };
   const activeTarget =
     terminalTargets.find(
       target =>
@@ -402,6 +458,22 @@ export function SessionScreen({
       }));
     },
   });
+  const liveChatResumeRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!client) liveChatResumeRef.current = null;
+  }, [client]);
+  useEffect(() => {
+    if (!savedChatOpen || !client || !activeTarget || !visible) return;
+    if (liveChatResumeRef.current === activeTarget.key) return;
+    liveChatResumeRef.current = activeTarget.key;
+    reportBackgroundFailure(chatOpen.open(), 'saved-chat-live-resume');
+  }, [activeTarget, chatOpen, client, savedChatOpen, visible]);
+  useEffect(() => {
+    if (savedChatOpen && chatPresentationVisible(activeChatView?.presentation)) {
+      setSavedChatOpen(false);
+      setSavedChat(null);
+    }
+  }, [activeChatView?.presentation, savedChatOpen]);
   const cancelChatOpen = chatOpen.cancel;
   const pendingChatOpenTerminalId = chatOpen.pendingTerminalId;
   const visibleAppAlert = appAlert || (chatOpen.notice?.type === 'error' ? chatOpen.notice : null);
@@ -410,7 +482,8 @@ export function SessionScreen({
     (restoringChat &&
       !chatPresentationVisible(activeChatView?.presentation)) ||
     chatPresentationLoading(activeChatView?.presentation) ||
-    pendingChatOpenTerminalId === activeTerminalSession?.terminalId;
+    pendingChatOpenTerminalId === activeTerminalSession?.terminalId ||
+    savedChatLoading;
   const activeChatControl = agentChatControlState(
     activePane,
     busy,
@@ -420,7 +493,9 @@ export function SessionScreen({
     visible,
     activePane?.pane_id || null,
   );
-  const chatVisible = chatPresentationVisible(activeChatView?.presentation) || restoringChat;
+  const chatVisible = savedChatOpen
+    || chatPresentationVisible(activeChatView?.presentation) || restoringChat;
+  const activeSavedChat = savedChat?.paneId === activePane?.pane_id ? savedChat : null;
   const onChatSpeechError = useCallback((error: unknown) => {
     setAppAlert({ title: 'Could not read chat aloud', message: String(error) });
   }, []);
@@ -527,7 +602,7 @@ export function SessionScreen({
   const closeActiveTunnel = () => {
     const previewId = tunnelPreviewRef.current;
     tunnelPreviewRef.current = null;
-    if (previewId !== null) {
+    if (previewId !== null && client) {
       bestEffortCleanup(
         client.native.stopPreview(previewId),
         'web-tunnel-close',
@@ -573,11 +648,12 @@ export function SessionScreen({
         await Linking.openURL(target.url);
         return;
       }
-      const tunnel = target.requiresSshTunnel
+      if (target.requiresSshTunnel && !client) throw new Error(t('savedChats.filesUnavailable'));
+      const tunnel = target.requiresSshTunnel && client
         ? await client.native.startWebPreview(target.url)
         : null;
       if (request !== browserRequestRef.current) {
-        if (tunnel) {
+        if (tunnel && client) {
           bestEffortCleanup(
             client.native.stopPreview(tunnel.id),
             'stale-web-tunnel-close',
@@ -602,7 +678,7 @@ export function SessionScreen({
       browserRequestRef.current += 1;
       const previewId = tunnelPreviewRef.current;
       tunnelPreviewRef.current = null;
-      if (previewId !== null) {
+      if (previewId !== null && client) {
         bestEffortCleanup(
           client.native.stopPreview(previewId),
           'web-tunnel-unmount',
@@ -675,7 +751,7 @@ export function SessionScreen({
         updateChatRestoreIntent(key);
       }
     }
-    if (activeTarget && activeId && !next.has(activeId) && chatRestoreIntentsRef.current.has(activeId)) {
+    if (client && activeTarget && activeId && !next.has(activeId) && chatRestoreIntentsRef.current.has(activeId)) {
       const transcriptKey = chatRestoreIntentsRef.current.get(activeId);
       try {
         const projection = agentTranscriptService.activate(hostSessionId, activeTarget.session.terminalId, client.native);
@@ -1013,6 +1089,7 @@ export function SessionScreen({
     setWorkspaceId(item.workspace_id);
     setTabId(item.tab_id);
     if (nextPane) onActivateTerminal(nextPane);
+    if (!client) return;
     reportBackgroundFailure(
       run(async () => {
         if (item.workspace_id !== workspace?.workspace_id) {
@@ -1067,6 +1144,7 @@ export function SessionScreen({
   const choosePane = (pane: PaneInfo) => {
     terminalTabSelectionStarted(pane.terminal_id);
     onActivateTerminal(pane);
+    if (!client) return;
     reportBackgroundFailure(
       run(() =>
         client.native.requestHerdrApi({
@@ -1079,6 +1157,7 @@ export function SessionScreen({
   };
 
   const create = async () => {
+    if (!client) return;
     if (mutationInFlight.current) return;
     let succeeded = true;
     if (editorMode === 'rename-tab' && selectedTab) {
@@ -1136,6 +1215,7 @@ export function SessionScreen({
   };
 
   const closeTab = async (item: TabInfo | undefined = selectedTab) => {
+    if (!client) return;
     if (!item) return;
     // Herdr focuses a surviving tab after closing the current one.
     pendingPaneFocus.current = null;
@@ -1162,6 +1242,7 @@ export function SessionScreen({
   };
 
   const closePane = async (pane: PaneInfo) => {
+    if (!client) return;
     if (editingPaneId === pane.pane_id) {
       setEditingPaneId(null);
       setEditorMode(null);
@@ -1207,6 +1288,14 @@ export function SessionScreen({
   };
 
   const closeActiveChat = useCallback(() => {
+    if (savedChatOpen) {
+      setSavedChatOpen(false);
+      setSavedChat(null);
+      savedChatGeneration.current += 1;
+      liveChatResumeRef.current = null;
+      cancelChatOpen();
+      return;
+    }
     const terminalId = activeTerminalSession?.terminalId;
     if (!terminalId) return;
     cancelChatOpen();
@@ -1219,9 +1308,10 @@ export function SessionScreen({
         ...view, presentation: closeChatPresentation(view.presentation),
       });
     });
-  }, [activeTerminalSession?.terminalId, activeTarget, cancelChatOpen, updateChatRestoreIntent]);
+  }, [activeTerminalSession?.terminalId, activeTarget, cancelChatOpen, savedChatOpen, updateChatRestoreIntent]);
 
   const openAgentChat = () => {
+    if (!client) return openSavedChat();
     if (activeChatView && chatPresentationRequested(activeChatView.presentation)) return;
     if (activeTarget && activeChatView) {
       try {
@@ -1335,7 +1425,7 @@ export function SessionScreen({
                         )}
                         variant="ghost"
                         onPress={hapticPress(() => chooseTab(item))}
-                        onLongPress={hapticPress(() => openRenameTab(item))}
+                        onLongPress={client ? hapticPress(() => openRenameTab(item)) : undefined}
                       >
                         <AnimatedAgentStatusGlyph
                           status={item.agent_status}
@@ -1368,7 +1458,7 @@ export function SessionScreen({
                           </Text>
                         )}
                       </Button>
-                      <Button
+                      {client && <Button
                         accessibilityLabel={t('session.closeTab', {
                           tab: label,
                         })}
@@ -1382,12 +1472,12 @@ export function SessionScreen({
                             active ? colors.onPrimary : colors.textSecondary
                           }
                         />
-                      </Button>
+                      </Button>}
                     </View>
                   );
                 })}
               </ScrollView>
-              <Button
+              {client && <Button
                 accessibilityLabel={t('session.newTab')}
                 className={cn(
                   'h-[55px] items-center justify-center rounded-none px-0 py-0',
@@ -1402,7 +1492,7 @@ export function SessionScreen({
                   size={Platform.OS === 'ios' ? 23 : 16}
                   color={colors.text}
                 />
-              </Button>
+              </Button>}
             </>
           ) : activeTerminalSession?.kind === 'ssh' ? (
             <>
@@ -1487,7 +1577,7 @@ export function SessionScreen({
                       className="h-11 min-w-0 flex-shrink justify-start gap-1.5 rounded-none px-2 py-0"
                       variant="ghost"
                       onPress={hapticPress(() => choosePane(pane))}
-                      onLongPress={hapticPress(() => openRenamePane(pane))}
+                      onLongPress={client ? hapticPress(() => openRenamePane(pane)) : undefined}
                     >
                       <View
                         className="size-[5px] rounded-full"
@@ -1508,7 +1598,7 @@ export function SessionScreen({
                         {label}
                       </Text>
                     </Button>
-                    <Button
+                    {client && <Button
                       accessibilityLabel={t('session.closePane', {
                         pane: label,
                       })}
@@ -1521,7 +1611,7 @@ export function SessionScreen({
                         size={13}
                         color={active ? colors.onPrimary : colors.textSecondary}
                       />
-                    </Button>
+                    </Button>}
                   </View>
                 );
               })}
@@ -1544,7 +1634,7 @@ export function SessionScreen({
             onSessionChromeVisibilityChange={setTerminalSessionChromeVisible}
             latencyMs={latencyMs}
             latencyWarningActive={latencyWarningActive}
-            visible={visible && Boolean(activeTarget)}
+            visible={visible && (Boolean(activeTarget) || !client)}
             preferences={terminalPreferences}
             controlUsage={terminalControlUsage}
             historyEntries={terminalHistory}
@@ -1590,7 +1680,26 @@ export function SessionScreen({
             }
             chatViewEnabled={chatVisible}
             renderViewportOverlay={
-              mountedChatViews.length
+              savedChatOpen
+                ? (insets, latestButtonBottom) => (
+                    <View className="absolute inset-0 bg-background">
+                      {activeSavedChat ? (
+                        <AgentChatView
+                          state={activeSavedChat.state}
+                          agent={activeSavedChat.agent}
+                          agentStatus="idle"
+                          contentInsets={insets}
+                          latestButtonBottom={latestButtonBottom}
+                          onOpenFile={() => setSavedChatError(t('savedChats.filesUnavailable'))}
+                        />
+                      ) : savedChatLoading ? (
+                        <ActivityIndicator className="mt-10" />
+                      ) : (
+                        <Text className="px-5 py-5 text-sm text-muted-foreground">{savedChatError || t('cachedHost.empty')}</Text>
+                      )}
+                    </View>
+                  )
+                : mountedChatViews.length
                 ? (insets, latestButtonBottom) =>
                     mountedChatViews.map(
                       ({ key, view: chatView, identity }) => {
@@ -1790,7 +1899,7 @@ export function SessionScreen({
               </Text>
             </View>
           )}
-        <AttachmentPasteSheet
+        {client && <AttachmentPasteSheet
           client={client}
           visible={attachmentsOpen}
           onClose={() => setAttachmentsOpen(false)}
@@ -1807,7 +1916,7 @@ export function SessionScreen({
               dispose: attachment.dispose,
             }));
           }}
-        />
+        />}
         <AgentIntegrationInstallSheet
           integration={chatOpen.notice?.type === 'integration' ? chatOpen.notice.integration : null}
           onCancel={chatOpen.dismissNotice}

@@ -46,7 +46,7 @@ export function AppOverlays({
     effectivePreferences;
   const activeSession = sessions.activeSession;
   const selectedPane =
-    navigation.selectedPaneId && activeSession
+    navigation.selectedPaneId && activeSession?.status === 'ready'
       ? activeSession.snapshot.panes.find(
           pane => pane.pane_id === navigation.selectedPaneId,
         ) ?? null

@@ -218,7 +218,7 @@ export function useSessionStartupRestore({
             persistProfile: false,
             navigate: false,
             trackConnecting: false,
-            activateSession: hostId === persisted.activeHostId,
+            activateSession: false,
             reuseConnectingSession: true,
             biometricVerified: protectedKey,
             traceStartupRestore: true,
@@ -248,9 +248,9 @@ export function useSessionStartupRestore({
         await withAppPerformanceTrace('Whip startup restore: active host', () =>
           restoreHost(activeHostId),
         );
-        commitAppCore(appCoreRef.current.selectSession(activeHostId));
         if (
           reopenTerminalOnLaunch &&
+          appCoreRef.current.view().activeSessionId === activeHostId &&
           restoredTerminalHostIdsRef.current.has(activeHostId)
         ) {
           navigation.showTerminal(activeHostId);
@@ -267,10 +267,8 @@ export function useSessionStartupRestore({
             restoreHost,
           ),
       );
-      if (persisted.activeHostId) {
-        commitAppCore(appCoreRef.current.selectHost(persisted.activeHostId));
-      }
-      if (reopenTerminalOnLaunch && !activeTerminalReopened) {
+      if (reopenTerminalOnLaunch && !activeTerminalReopened
+        && appCoreRef.current.view().activeSessionId === activeHostId) {
         const terminalHostId =
           (persisted.activeHostId &&
           restoredTerminalHostIdsRef.current.has(persisted.activeHostId)
