@@ -54,6 +54,8 @@ const files = [
   ['launch-videos/source-assets/ios/terminal.mp4', 'ios/terminal.mp4'],
   ['launch-videos/source-assets/ios/chat-view.mp4', 'ios/chat-view.mp4'],
   ['launch-videos/source-assets/ios/files.mp4', 'ios/files.mp4'],
+  ['launch-videos/source-assets/ios/files-changes.mp4', 'ios/files-changes.mp4'],
+  ['launch-videos/source-assets/ios/files-diff.mp4', 'ios/files-diff.mp4'],
   ['launch-videos/source-assets/models/laptop/scene.gltf', 'models/laptop/scene.gltf'],
   ['launch-videos/source-assets/models/laptop/scene.bin', 'models/laptop/scene.bin'],
   ['launch-videos/source-assets/models/laptop/license.txt', 'models/laptop/license.txt'],

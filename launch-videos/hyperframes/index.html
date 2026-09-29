@@ -85,7 +85,7 @@
         <div data-hf-id="hf-chat1" class="composer-copy">
           <span data-hf-id="hf-chat2">Live agent conversation</span>
           <h2 data-hf-id="hf-chat3">Chat View.<br data-hf-id="hf-chat4">See the conversation.</h2>
-          <p data-hf-id="hf-chat5">Read your messages and the agent's replies in the live session.</p>
+          <p data-hf-id="hf-chat5">Read the live conversation and compose your next prompt.</p>
         </div>
       </section>
 
@@ -93,8 +93,8 @@
         <div data-hf-id="hf-files1" class="files-copy">
           <span data-hf-id="hf-files2">Remote files · SFTP</span>
           <h2 data-hf-id="hf-files3">Your repo.<br data-hf-id="hf-files4">In your pocket.</h2>
-          <p data-hf-id="hf-files5">Browse, edit, upload, download, and preview files without leaving the active agent.</p>
-          <div data-hf-id="hf-files6" class="files-actions"><b data-hf-id="hf-files7">Browse</b><b data-hf-id="hf-files8">Edit</b><b data-hf-id="hf-files9">Preview</b></div>
+          <p data-hf-id="hf-files5">Browse remote files, review Git changes, and inspect diffs.</p>
+          <div data-hf-id="hf-files6" class="files-actions"><b data-hf-id="hf-files7">Browse</b><b data-hf-id="hf-files8">Git diff</b><b data-hf-id="hf-files9">Preview</b></div>
         </div>
       </section>
 
@@ -127,7 +127,9 @@
       <video data-hf-id="hf-atg4" id="phone-herd" class="clip phone-source" src="./assets/ios/herd-status.mp4" data-start="8.2" data-duration="11.15" data-track-index="8" data-layout-ignore="" muted playsinline></video>
       <video data-hf-id="hf-6v3t" id="phone-terminal" class="clip phone-source" src="./assets/ios/terminal.mp4" data-start="19.35" data-duration="2.65" data-track-index="8" data-layout-ignore="" muted playsinline></video>
       <video data-hf-id="hf-chat-video" id="phone-chat" class="clip phone-source" src="./assets/ios/chat-view.mp4" data-start="22" data-duration="4.5" data-track-index="8" data-layout-ignore="" muted playsinline></video>
-      <video data-hf-id="hf-kswl" id="phone-files" class="clip phone-source" src="./assets/ios/files.mp4" data-start="26.5" data-duration="4" data-track-index="8" data-layout-ignore="" muted playsinline></video>
+      <video data-hf-id="hf-kswl" id="phone-files" class="clip phone-source" src="./assets/ios/files.mp4" data-start="26.5" data-duration="1.1" data-track-index="8" data-layout-ignore="" muted playsinline></video>
+      <video data-hf-id="hf-files-changes" id="phone-files-changes" class="clip phone-source" src="./assets/ios/files-changes.mp4" data-start="27.6" data-duration="1.5" data-track-index="8" data-layout-ignore="" muted playsinline></video>
+      <video data-hf-id="hf-files-diff" id="phone-files-diff" class="clip phone-source" src="./assets/ios/files-diff.mp4" data-start="29.1" data-duration="1.4" data-track-index="8" data-layout-ignore="" muted playsinline></video>
       <video data-hf-id="hf-ip64" id="phone-herd-final" class="clip phone-source" src="./assets/ios/herd-final.mp4" data-start="30.5" data-duration="4.5" data-track-index="8" data-layout-ignore="" muted playsinline></video>
 
       <audio data-hf-id="hf-8zeh" id="soundtrack" src="./assets/audio/whip-launch.wav" data-start="0" data-duration="35" data-track-index="17" data-volume="0.95"></audio>
@@ -194,6 +196,7 @@
       enter('.real-notification', 17.42, {x: 190, y: 45, rotateX: 8, rotateY: -22, scale: .76, autoAlpha: 0}, {x: 0, y: 0, rotateX: 0, rotateY: -4, scale: 1, autoAlpha: 1}, .7, 'back.out(1.18)');
       tl.to('.real-notification', {y: -14, rotateY: 1.5, duration: 1.32, ease: 'sine.inOut'}, 18.16);
       tl.to('.real-notification', {x: -42, scale: .92, autoAlpha: 0, duration: .3, ease: 'power3.in'}, 19.42);
+      tl.to('.alert-copy', {autoAlpha: 0, x: 65, duration: .28, ease: 'power3.in'}, 19.35);
       enter('.handoff-card', 19.52, {y: 80, scale: .86, autoAlpha: 0}, {y: 0, scale: 1, autoAlpha: 1}, .58, 'expo.out');
 
       enter('.composer-copy > span', 22.22, {x: -70, autoAlpha: 0}, {x: 0, autoAlpha: 1}, .46, 'expo.out');
@@ -205,7 +208,7 @@
       enter('.files-copy h2', 26.9, {x: -120, autoAlpha: 0}, {x: 0, autoAlpha: 1}, .72, 'power4.out');
       enter('.files-copy p', 27.42, {y: 38, autoAlpha: 0}, {y: 0, autoAlpha: 1}, .52, 'power3.out');
       enter('.files-actions b', 27.95, {y: 28, scale: .78, autoAlpha: 0}, {y: 0, scale: 1, autoAlpha: 1, stagger: .1}, .42, 'back.out(1.2)');
-      tl.to('.files-copy', {autoAlpha: 0, x: -65, duration: .28, ease: 'power3.in'}, 30.12);
+      tl.to('.files-copy', {autoAlpha: 0, x: -65, duration: .28, ease: 'power3.in'}, 29.1);
 
       enter('.final-copy > img', 30.84, {rotate: -55, scale: .35, autoAlpha: 0}, {rotate: 0, scale: 1, autoAlpha: 1}, .64, 'back.out(1.25)');
       enter('.final-copy > span', 31.08, {x: -65, autoAlpha: 0}, {x: 0, autoAlpha: 1}, .42, 'expo.out');
@@ -356,7 +359,7 @@
         clone.needsUpdate = true;
         return clone;
       };
-      const phoneVideos = new Map(['hosts', 'herd', 'terminal', 'chat', 'files', 'herd-final'].map((name) => {
+      const phoneVideos = new Map(['hosts', 'herd', 'terminal', 'chat', 'files', 'files-changes', 'files-diff', 'herd-final'].map((name) => {
         const texture = new THREE.VideoTexture(document.getElementById(`phone-${name}`));
         texture.colorSpace = THREE.SRGBColorSpace;
         texture.minFilter = THREE.LinearFilter;
@@ -430,10 +433,10 @@
         camera.rotateZ(roll);
       };
       const featureShots = [
-        {start: 13.4, settle: 13.85, end: 16.2, position: [3.35, .95, 7.15], target: [3.35, .95, 0]},
-        {start: 19.35, settle: 19.85, end: 22, position: [-1.25, -.05, 8.5], target: [-1.25, -.05, 0]},
-        {start: 22, settle: 22.5, end: 26.5, position: [1.05, -.6, 7.4], target: [1.05, -.6, 0]},
-        {start: 26.5, settle: 27, end: 30.5, position: [1.45, .45, 6.8], target: [1.45, .45, 0]},
+        {start: 13.4, settle: 13.85, end: 16.2, position: [3.95, .95, 5], target: [3.95, .95, 0]},
+        {start: 19.35, settle: 19.85, end: 22, position: [-2.2, -.05, 5.4], target: [-2.2, -.05, 0]},
+        {start: 22, settle: 22.5, end: 26.5, position: [1.4, -.6, 5], target: [1.4, -.6, 0]},
+        {start: 26.5, settle: 27, end: 30.5, position: [2, .45, 4.75], target: [2, .45, 0]},
       ];
       const frameFeature = (time) => {
         const shot = featureShots.find(({start, end}) => time >= start && time < end);
@@ -563,7 +566,7 @@
           macRig.visible = false;
           serverRig.visible = false;
           piRig.visible = false;
-          setPhoneScreen('files');
+          setPhoneScreen(t >= 29.1 ? 'files-diff' : t >= 27.6 ? 'files-changes' : 'files');
           setTransform(phoneRig, [lerp(2.7, 2.25, p), lerp(.12, -.1, p), lerp(1.35, 1.05, p)], [lerp(.04, -.035, p), lerp(-.38, -.04, p), lerp(.055, -.018, p)], lerp(.72, .82, p));
           setCamera(mix3([-.2, .38, 9.4], [.1, .55, 10.4], p), mix3([.6, 0, 0], [.75, -.05, 0], p), lerp(.02, -.012, p));
           scene.background = new THREE.Color(0xe8e8ec);
