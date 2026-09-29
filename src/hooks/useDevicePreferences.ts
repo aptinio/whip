@@ -1,7 +1,8 @@
 import { Appearance } from 'react-native';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocales } from 'expo-localization';
 
+import { applyDeveloperOptionsPolicy, getBillingRolloutPolicy } from '../billing/rollout';
 import i18n, { languageForLocale } from '../i18n';
 import {
   incrementTerminalControlUsage,
@@ -129,14 +130,20 @@ export function useDevicePreferences(
     });
   }, [resolvedLanguage]);
 
+  const { developerOptionsAvailable } = getBillingRolloutPolicy();
+  const effectiveValue = useMemo(
+    () => applyDeveloperOptionsPolicy(state.value, developerOptionsAvailable),
+    [state.value, developerOptionsAvailable],
+  );
+
   useEffect(() => {
     if (state.hydration.status !== 'loaded') return;
-    setAppLogCaptureEnabled(state.value.developerOptionsEnabled);
+    setAppLogCaptureEnabled(effectiveValue.developerOptionsEnabled);
     reportBackgroundFailure(
-      setLatencyDiagnosticsEnabled(state.value.developerOptionsEnabled),
+      setLatencyDiagnosticsEnabled(effectiveValue.developerOptionsEnabled),
       'latency-diagnostics-setting-persist',
     );
-  }, [state.hydration.status, state.value.developerOptionsEnabled]);
+  }, [state.hydration.status, effectiveValue.developerOptionsEnabled]);
 
   const mutate = useCallback(
     (updater: (current: DevicePreferences) => DevicePreferences) => {
@@ -197,7 +204,7 @@ export function useDevicePreferences(
   );
 
   return {
-    value: state.value,
+    value: effectiveValue,
     hydration: state.hydration,
     setPreference,
     setTerminalPreferences,

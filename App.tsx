@@ -28,6 +28,7 @@ import {
 import { useStartupStorage } from './src/hooks/useStartupStorage';
 import { useTerminalHistory } from './src/hooks/useTerminalHistory';
 import { useTerminalSessions } from './src/hooks/useTerminalSessions';
+import { getBillingRolloutPolicy } from './src/billing/rollout';
 import { useWhipEntitlements } from './src/billing/useWhipEntitlements';
 
 const guiFontAssets = {
@@ -60,10 +61,10 @@ function AppContent() {
   const startupStorage = useStartupStorage();
   const preferences = useDevicePreferences(startupStorage);
   const preferencesLoaded = preferences.hydration.status !== 'loading';
-  const membershipSimulationEnabled =
-    preferencesLoaded &&
-    preferences.value.developerOptionsEnabled;
-  const entitlements = useWhipEntitlements(membershipSimulationEnabled);
+  const { billingEnabled } = getBillingRolloutPolicy(
+    preferences.value.developerOptionsEnabled,
+  );
+  const entitlements = useWhipEntitlements(preferencesLoaded && billingEnabled);
   const terminals = useTerminalSessions();
   const telemetry = useLiveHostTelemetry();
   const notifications = useAgentNotifications();

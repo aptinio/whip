@@ -28,7 +28,7 @@ type Props = Omit<
 > & {
   accessTier: WhipTier;
   entitlements: WhipEntitlementsController;
-  membershipSimulationEnabled: boolean;
+  membershipEnabled: boolean;
   onOpenLicenses: () => void;
 };
 
@@ -36,7 +36,7 @@ export function MoreScreen(props: Props) {
   const { t } = useTranslation();
   const [purchaseScreenVisible, setPurchaseScreenVisible] = useState(false);
   const openRancher = () => {
-    if (!props.membershipSimulationEnabled) return Promise.resolve();
+    if (!props.membershipEnabled) return Promise.resolve();
     setPurchaseScreenVisible(true);
     return Promise.resolve();
   };
@@ -48,7 +48,7 @@ export function MoreScreen(props: Props) {
             {t('nav.more')}
           </Text>
         </GlassSurface>
-        {props.membershipSimulationEnabled ? (
+        {props.membershipEnabled ? (
           <MembershipSection
             entitlements={props.entitlements}
             onOpenPurchaseScreen={() => setPurchaseScreenVisible(true)}

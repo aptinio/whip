@@ -47,6 +47,7 @@ import {
 import { removeAppBackgroundImage, selectAppBackgroundImage } from '@/src/services/appBackground';
 import { openNotificationSettings } from '@/src/services/notificationSettings';
 import { removeTerminalBackgroundImage, selectTerminalBackgroundImage } from '@/src/services/terminalBackground';
+import { getBillingRolloutPolicy } from '../billing/rollout';
 import { hapticPress, IconButton } from './app-ui';
 import { ConfirmationPopup } from './ConfirmationPopup';
 import { GlassSurface } from './GlassSurface';
@@ -481,7 +482,7 @@ export function SettingsSection(props: SettingsSectionProps) {
         />
       </CollapsibleSectionCard>
 
-      <CollapsibleSectionCard
+      {getBillingRolloutPolicy().developerOptionsAvailable ? <CollapsibleSectionCard
         title={t('settings.developer')}
         expanded={developerExpanded}
         onToggle={toggleDeveloper}>
@@ -510,7 +511,7 @@ export function SettingsSection(props: SettingsSectionProps) {
             />
           </>
         ) : null}
-      </CollapsibleSectionCard>
+      </CollapsibleSectionCard> : null}
       </View>
 
       {Platform.OS === 'android' ? <VolumeKeyActionSheet

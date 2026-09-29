@@ -1,3 +1,9 @@
+jest.mock('expo-constants', () => ({
+  __esModule: true,
+  default: { expoConfig: null },
+}));
+
+import { applyDeveloperOptionsPolicy } from '../src/billing/rollout';
 jest.mock('@react-native-async-storage/async-storage', () => ({
   __esModule: true,
   default: { getItem: jest.fn(), setItem: jest.fn() },
@@ -544,4 +550,19 @@ test('moves an existing app background into its own backed-up storage', async ()
     JSON.stringify(preferences),
   );
   expect(mockRemoveAppBackground).toHaveBeenCalledWith(previousUri);
+});
+
+test('Store builds ignore persisted developer settings without erasing them', () => {
+  const stored = {
+    ...defaultDevicePreferences,
+    developerOptionsEnabled: true,
+    developerMembershipState: 'rancher' as const,
+    terminal: { ...defaultDevicePreferences.terminal, visualHints: true },
+  };
+  const effective = applyDeveloperOptionsPolicy(stored, false);
+  expect(effective.developerOptionsEnabled).toBe(false);
+  expect(effective.terminal.visualHints).toBe(false);
+  expect(stored.developerOptionsEnabled).toBe(true);
+  expect(stored.terminal.visualHints).toBe(true);
+  expect(applyDeveloperOptionsPolicy(stored, true)).toBe(stored);
 });

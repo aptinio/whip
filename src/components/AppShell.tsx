@@ -16,7 +16,7 @@ import type { useTerminalHistory } from '../hooks/useTerminalHistory';
 import type { useTerminalSessions } from '../hooks/useTerminalSessions';
 import { effectiveDevicePreferences } from '../billing/effectiveSettings';
 import { simulateDeveloperMembership } from '../billing/developerMembership';
-import { resolveAccessTier } from '../billing/tiers';
+import { getBillingRolloutPolicy } from '../billing/rollout';
 import type { WhipEntitlementsController } from '../billing/useWhipEntitlements';
 import { cachedHerdView, resolveHerdProjectionRequest, type HerdHostQueue } from '../herdQueue';
 import { aggregateAgentStatus } from '../lib/agentStatusAggregate';
@@ -87,7 +87,8 @@ export function AppShell({
   const { colors: theme, isDark } = useTheme();
   const navigationBlurTargetRef = useRef<View | null>(null);
   const storedPreferences = preferences.value;
-  const developerMembershipState = storedPreferences.developerOptionsEnabled
+  const billingPolicy = getBillingRolloutPolicy(storedPreferences.developerOptionsEnabled);
+  const developerMembershipState = billingPolicy.developerOptionsEnabled
     ? storedPreferences.developerMembershipState
     : null;
   const displayedEntitlements = useMemo(
@@ -96,7 +97,7 @@ export function AppShell({
       : entitlements,
     [developerMembershipState, entitlements],
   );
-  const accessTier = resolveAccessTier(developerMembershipState);
+  const accessTier = billingPolicy.billingEnabled ? displayedEntitlements.tier : 'rancher';
   const effectivePreferences = useMemo(
     () => effectiveDevicePreferences(storedPreferences, accessTier),
     [accessTier, storedPreferences],
@@ -516,9 +517,7 @@ export function AppShell({
                           developerMembershipState={
                             storedPreferences.developerMembershipState
                           }
-                          membershipSimulationEnabled={
-                            developerMembershipState !== null
-                          }
+                          membershipEnabled={billingPolicy.billingEnabled}
                           language={language}
                           keepScreenOn={keepScreenOn}
                           reopenTerminalOnLaunch={reopenTerminalOnLaunch}
