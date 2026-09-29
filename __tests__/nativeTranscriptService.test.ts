@@ -237,6 +237,34 @@ describe('Rust-owned agent Chat projection', () => {
     expect(remote.value.confirmAgentTranscriptCache).not.toHaveBeenCalled();
   });
 
+  test('confirms only a checkpoint that actually reached storage', async () => {
+    const cache = new MemoryAgentChatCache();
+    const remote = fakeTransport();
+    const service = new NativeTranscriptService(cache);
+    openedToken(service, remote.value);
+    await flush();
+
+    for (let revision = 2; revision <= 4; revision += 1) {
+      remote.emit({
+        revision,
+        deltas: [],
+        cacheWrite: {
+          namespace: 'profile',
+          key: transcriptKey,
+          blob: new Uint8Array([revision]).buffer,
+          confirmationToken: `checkpoint-${revision}`,
+        },
+      });
+    }
+    await cache.loadNative(transcriptKey);
+    await flush();
+
+    expect(remote.value.confirmAgentTranscriptCache)
+      .toHaveBeenCalledWith('checkpoint-4');
+    expect(remote.value.confirmAgentTranscriptCache).toHaveBeenCalledTimes(1);
+    expect([...new Uint8Array((await cache.loadNative(transcriptKey))!)]).toEqual([4]);
+  });
+
   test('stale snapshots and old runtime callbacks cannot delete current history', async () => {
     const cache = new MemoryAgentChatCache();
     const service = new NativeTranscriptService(cache);

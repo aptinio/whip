@@ -399,8 +399,8 @@ export class NativeTranscriptService {
     // Admit the write immediately to the cache's namespace queue. A deferred
     // per-entry chain could otherwise enqueue it after authoritative deletion.
     this.cache.saveNative(checkpoint)
-      .then(() => {
-        if (entry.deleted) return;
+      .then(saved => {
+        if (entry.deleted || !saved) return;
         entry.transport.confirmAgentTranscriptCache(
           checkpoint.confirmationToken,
         );

@@ -1159,8 +1159,11 @@ impl AgentSessionManager {
                     || checkpoint_base.is_none_or(|base| {
                         cursor.saturating_sub(base) >= OPENCODE_CHECKPOINT_EVENTS
                     });
-                let new_checkpoint =
-                    checkpoint_due && (full || checkpoint_base.is_none_or(|base| cursor > base));
+                // A checkpoint serializes the entire transcript. Wait for SQLite
+                // confirmation before producing another full copy of it.
+                let new_checkpoint = session.pending_cache_offset.is_none()
+                    && checkpoint_due
+                    && (full || checkpoint_base.is_none_or(|base| cursor > base));
                 let cache = new_checkpoint
                     .then(|| core.cache_blob().ok())
                     .flatten()
@@ -1410,8 +1413,13 @@ fn stream_data(context: u64, bytes: Vec<u8>) {
                     let checkpoint_due = update.as_ref().is_some_and(completes_turn)
                         || result.committable_offset.saturating_sub(checkpoint_base)
                             >= CODEX_CHECKPOINT_BYTES;
-                    let new_checkpoint =
-                        checkpoint_due && result.committable_offset > checkpoint_base;
+                    // Each cache blob contains all prior JSONL lines. Sending
+                    // another while one is crossing the bridge can retain many
+                    // large copies of the same history in native and JS memory.
+                    let new_checkpoint = core.initial_history_caught_up()
+                        && session.pending_cache_offset.is_none()
+                        && checkpoint_due
+                        && result.committable_offset > checkpoint_base;
                     let cache = new_checkpoint
                         .then(|| core.cache_blob().ok())
                         .flatten()
@@ -1882,6 +1890,56 @@ mod tests {
             .bind_codex("terminal-rebound".into(), SESSION.into())
             .unwrap();
         assert_eq!(rebound.transcript_key, codex.transcript_key);
+    }
+
+    #[test]
+    fn codex_stream_checkpoints_after_history_and_waits_for_confirmation() {
+        let manager = test_manager("checkpoint-host");
+        manager.connected();
+        let binding = manager
+            .bind_codex("terminal".into(), SESSION.into())
+            .unwrap();
+        let context = NEXT_STREAM_CONTEXT.fetch_add(1, Ordering::Relaxed);
+        let chunk = format!(
+            "{{\"type\":\"ignored\",\"data\":\"{}\"}}\n",
+            "x".repeat(CODEX_CHECKPOINT_BYTES as usize)
+        )
+        .into_bytes();
+        {
+            let mut state = manager.inner.state.lock();
+            let session = state.sessions.get_mut(&binding.transcript_key).unwrap();
+            let AgentSessionCore::Codex(core) = &mut session.core else {
+                panic!("expected Codex core");
+            };
+            let source =
+                core.bind_source("/rollout".into(), "1:2".into(), (chunk.len() * 3) as u64);
+            streams().write().insert(
+                context,
+                StreamContext {
+                    manager: Arc::downgrade(&manager.inner),
+                    session_key: binding.transcript_key.clone(),
+                    source_generation: source.source_generation,
+                    operation_epoch: session.operation_epoch,
+                },
+            );
+        }
+
+        stream_data(context, chunk.clone());
+        stream_data(context, chunk.clone());
+        assert!(manager.inner.state.lock().checkpoints.is_empty());
+        stream_data(context, chunk.clone());
+        let first_token = {
+            let state = manager.inner.state.lock();
+            assert_eq!(state.checkpoints.len(), 1);
+            state.checkpoints.keys().next().unwrap().clone()
+        };
+        stream_data(context, chunk.clone());
+        assert_eq!(manager.inner.state.lock().checkpoints.len(), 1);
+
+        assert!(manager.confirm_cache(&first_token));
+        stream_data(context, chunk);
+        assert_eq!(manager.inner.state.lock().checkpoints.len(), 1);
+        streams().write().remove(&context);
     }
 
     #[test]

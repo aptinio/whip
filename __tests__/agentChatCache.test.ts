@@ -55,9 +55,54 @@ describe('opaque agent chat persistence adapter', () => {
     const cache = new MemoryAgentChatCache();
     const first = cache.saveNative(checkpoint(codexKey, [1]));
     const second = cache.saveNative(checkpoint(codexKey, [2]));
-    await Promise.all([second, first]);
+    expect(await first).toBe(false);
+    expect(await second).toBe(true);
 
     expect([...new Uint8Array((await cache.loadNative(codexKey))!)]).toEqual([2]);
+  });
+
+  test('keeps only the newest queued full transcript checkpoint', async () => {
+    const cache = new MemoryAgentChatCache();
+    const saves = Array.from({ length: 100 }, (_, index) =>
+      cache.saveNative(checkpoint(codexKey, [index])));
+
+    expect(await Promise.all(saves)).toEqual([
+      ...Array<boolean>(99).fill(false),
+      true,
+    ]);
+    expect([...new Uint8Array((await cache.loadNative(codexKey))!)]).toEqual([99]);
+  });
+
+  test('bounds snapshots queued while a database write is still running', async () => {
+    let startFirstWrite!: () => void;
+    let finishFirstWrite!: () => void;
+    const firstWriteStarted = new Promise<void>(resolve => { startFirstWrite = resolve; });
+    const firstWriteFinished = new Promise<void>(resolve => { finishFirstWrite = resolve; });
+    const persisted: number[] = [];
+    const cache = new SQLiteAgentChatCache(async () => ({
+      execAsync: async () => undefined,
+      getFirstAsync: async () => null,
+      withExclusiveTransactionAsync: async (operation: (transaction: unknown) => Promise<void>) =>
+        operation({
+          runAsync: async (_sql: string, params: unknown[]) => {
+            const bytes = params[2] as Uint8Array;
+            if (persisted.length === 0) {
+              startFirstWrite();
+              await firstWriteFinished;
+            }
+            persisted.push(bytes[0]);
+          },
+        }),
+    }) as never);
+
+    const first = cache.saveNative(checkpoint(codexKey, [1]));
+    await firstWriteStarted;
+    const second = cache.saveNative(checkpoint(codexKey, [2]));
+    const third = cache.saveNative(checkpoint(codexKey, [3]));
+    expect(await second).toBe(false);
+    finishFirstWrite();
+    expect(await Promise.all([first, third])).toEqual([true, true]);
+    expect(persisted).toEqual([1, 3]);
   });
 
   test('deletes checkpoints by the native namespace used for host cleanup', async () => {

@@ -1653,6 +1653,10 @@ impl CodexSessionCore {
             .is_some_and(|end| self.framer.received_offset() >= end)
     }
 
+    pub fn initial_history_caught_up(&self) -> bool {
+        self.opening_boundary_reached()
+    }
+
     fn status_update(&self) -> AgentTranscriptUpdate {
         AgentTranscriptUpdate {
             revision: self.revision,
