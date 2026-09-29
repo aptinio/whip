@@ -451,11 +451,14 @@
         camera.lookAt(target);
         camera.rotateZ(roll);
       };
+      const filesFocus = {position: [2, .45, 4.75], target: [2, .45, 0]};
       const featureShots = [
         {start: 13.4, settle: 13.85, end: 16.2, position: [3.95, .95, 5], target: [3.95, .95, 0]},
         {start: 19.35, wideUntil: 19.8, settle: 20.4, returnStart: 21.3, end: 22, position: [-2.2, -.05, 5.4], target: [-2.2, -.05, 0]},
         {start: 22, wideUntil: 22.7, settle: 23.4, toolFocusUntil: 26.1, end: 31.5, position: [1.4, -.6, 5], target: [1.4, -.6, 0]},
-        {start: 31.5, settle: 32, end: 35.5, position: [2, .45, 4.75], target: [2, .45, 0]},
+        // Establish the whole app, inspect the files, then pull back before the diff opens.
+        {start: 31.5, wideUntil: 32.1, settle: 32.6, returnStart: 33.55, end: 34.1, ...filesFocus},
+        {start: 34.1, wideUntil: 34.65, settle: 35.1, end: 35.5, ...filesFocus},
       ];
       const frameFeature = (time) => {
         const shot = featureShots.find(({start, end}) => time >= start && time < end);
