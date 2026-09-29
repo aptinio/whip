@@ -443,7 +443,7 @@ test('sanitizes persisted app background preferences separately from the termina
   expect(preferences.terminal.backgroundDimming).toBe(80);
 });
 
-test('only enables the experimental app glass preference for an explicit boolean opt-in', async () => {
+test('only enables the app glass preference for an explicit boolean opt-in', async () => {
   mockGetItem.mockResolvedValueOnce(JSON.stringify({ appGlassEnabled: true }));
   await expect(loadDevicePreferences()).resolves.toMatchObject({ appGlassEnabled: true });
 

@@ -363,12 +363,12 @@ export function SettingsSection(props: SettingsSectionProps) {
             divided
           />
           <SettingRow
-            title={t('settings.experimentalGlass')}
+            title={t('settings.glass')}
             copy={!props.glassUnlocked
               ? t('settings.rancherGlassCopy')
               : props.appBackgroundImageUri
-                ? t('settings.experimentalGlassCopy')
-                : t('settings.experimentalGlassRequiresImage')}
+                ? t('settings.glassCopy')
+                : t('settings.glassRequiresImage')}
             value={props.appGlassEnabled}
             disabled={!props.appBackgroundImageUri || !props.glassUnlocked}
             locked={!props.glassUnlocked}
