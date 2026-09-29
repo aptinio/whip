@@ -4,7 +4,7 @@ import {
   selectMobileTab,
 } from '../src/mobileNavigation';
 
-test.each(['hosts', 'herd', 'more'] as const)(
+test.each(['hosts', 'herd', 'chats', 'more'] as const)(
   'terminal exit returns to herd after entering from %s',
   previousTab => {
     const previous = selectMobileTab(initialMobileNavigation, previousTab);

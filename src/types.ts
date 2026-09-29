@@ -97,4 +97,4 @@ export interface HerdrSnapshot
   layouts: PaneLayoutSnapshot[];
 }
 
-export type AppTab = 'hosts' | 'herd' | 'terminal' | 'more';
+export type AppTab = 'hosts' | 'herd' | 'chats' | 'terminal' | 'more';

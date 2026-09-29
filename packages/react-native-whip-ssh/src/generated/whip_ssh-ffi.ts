@@ -450,6 +450,12 @@ interface NativeModuleInterface {
     cellWidthPx: number,
     cellHeightPx: number,
   ): bigint;
+  ubrn_uniffi_whip_ssh_fn_func_read_cached_agent_transcript(
+    agent: Uint8Array,
+    sessionId: Uint8Array,
+    cacheBlob: Uint8Array,
+    uniffi_out_err: UniffiRustCallStatus,
+  ): Uint8Array;
   ubrn_uniffi_whip_ssh_fn_func_remove_ssh_sftp_directory(
     key: Uint8Array,
     path: Uint8Array,
@@ -1208,6 +1214,7 @@ interface NativeModuleInterface {
   ubrn_uniffi_whip_ssh_checksum_func_open_ssh_unix_socket_channel(): number;
   ubrn_uniffi_whip_ssh_checksum_func_pair_host(): number;
   ubrn_uniffi_whip_ssh_checksum_func_prepare_herdr_terminal_bridge(): number;
+  ubrn_uniffi_whip_ssh_checksum_func_read_cached_agent_transcript(): number;
   ubrn_uniffi_whip_ssh_checksum_func_remove_ssh_sftp_directory(): number;
   ubrn_uniffi_whip_ssh_checksum_func_remove_ssh_sftp_file(): number;
   ubrn_uniffi_whip_ssh_checksum_func_rename_ssh_sftp_path(): number;

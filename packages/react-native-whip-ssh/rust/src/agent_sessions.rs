@@ -161,6 +161,31 @@ impl From<AgentCacheError> for AgentSessionError {
     }
 }
 
+/// Restore a saved conversation without opening a host transport or a live
+/// session. The cache decoder still validates its agent and session identity.
+#[uniffi::export]
+pub fn read_cached_agent_transcript(
+    agent: AgentTranscriptKind,
+    session_id: String,
+    cache_blob: Vec<u8>,
+) -> Result<AgentTranscriptState, AgentSessionError> {
+    let mut state = match agent {
+        AgentTranscriptKind::Codex => {
+            let mut core = CodexSessionCore::new(session_id);
+            core.restore_cache(&cache_blob)?
+        }
+        AgentTranscriptKind::OpenCode => {
+            let mut core = OpenCodeSessionCore::new(session_id);
+            core.restore_cache(&cache_blob)?
+        }
+    };
+    // Offline viewing uses the saved projection itself. Live readiness still
+    // requires remote boundary validation in the session cores.
+    state.status = AgentTranscriptStatus::Stale;
+    state.error = None;
+    Ok(state)
+}
+
 #[derive(Debug)]
 struct SessionRuntime {
     key: String,
@@ -1734,6 +1759,44 @@ mod tests {
             1,
             HerdrConnection::new(runtime_id.to_owned(), String::new(), None, None),
         )
+    }
+
+    #[test]
+    fn saved_transcripts_open_without_a_host_runtime_and_validate_identity() {
+        let codex_lines = [
+            serde_json::json!({"type":"session_meta","payload":{}}),
+            serde_json::json!({"type":"event_msg","payload":{"type":"user_message","message":"hello"}}),
+        ]
+        .into_iter()
+        .map(|line| format!("{line}\n"))
+        .collect::<String>();
+        let mut codex = CodexSessionCore::new(SESSION);
+        let source = codex.bind_source("/rollout".into(), "1:2".into(), codex_lines.len() as u64);
+        codex
+            .ingest(source.source_generation, codex_lines.as_bytes())
+            .unwrap();
+        let blob = codex.cache_blob().unwrap();
+        let saved =
+            read_cached_agent_transcript(AgentTranscriptKind::Codex, SESSION.into(), blob.clone())
+                .unwrap();
+        assert_eq!(saved.status, AgentTranscriptStatus::Stale);
+        assert!(!saved.messages.is_empty());
+        assert!(matches!(
+            read_cached_agent_transcript(AgentTranscriptKind::Codex, "other".into(), blob),
+            Err(AgentSessionError::CorruptedCache(_))
+        ));
+
+        let mut opencode = OpenCodeSessionCore::new("ses_saved");
+        opencode
+            .bootstrap(1, r#"{"info":{"id":"ses_saved"},"messages":[]}"#)
+            .unwrap();
+        let saved = read_cached_agent_transcript(
+            AgentTranscriptKind::OpenCode,
+            "ses_saved".into(),
+            opencode.cache_blob().unwrap(),
+        )
+        .unwrap();
+        assert_eq!(saved.status, AgentTranscriptStatus::Stale);
     }
 
     #[test]

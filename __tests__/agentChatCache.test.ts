@@ -7,6 +7,7 @@ function sqliteCache() {
   const database = {
     execAsync: async (sql: string) => { sqlite.exec(sql); },
     getFirstAsync: async (sql: string, params: string[] = []) => sqlite.prepare(sql).get(...params),
+    getAllAsync: async (sql: string, params: string[] = []) => sqlite.prepare(sql).all(...params),
     runAsync,
     withExclusiveTransactionAsync: async (operation: (transaction: { runAsync: typeof runAsync }) => Promise<void>) => {
       sqlite.exec('BEGIN');
@@ -49,6 +50,22 @@ describe('opaque agent chat persistence adapter', () => {
 
     expect([...new Uint8Array((await cache.loadNative(codexKey))!)]).toEqual([1]);
     expect([...new Uint8Array((await cache.loadNative(openCodeKey))!)]).toEqual([2]);
+  });
+
+  test('lists saved conversations from SQLite without loading their blobs', async () => {
+    const { cache, close } = sqliteCache();
+    try {
+      await cache.saveNative(checkpoint(codexKey, [1, 2, 3]));
+      await cache.saveNative(checkpoint(openCodeKey, [4, 5]));
+      const saved = await cache.listNative();
+      expect(saved.map(chat => [chat.agent, chat.sessionId, chat.cacheBytes])).toEqual(expect.arrayContaining([
+        ['opencode', 'ses_abc123', 2],
+        ['codex', '11111111-1111-4111-8111-111111111111', 3],
+      ]));
+      expect(saved).toHaveLength(2);
+    } finally {
+      close();
+    }
   });
 
   test('serializes writes for one opaque key in arrival order', async () => {

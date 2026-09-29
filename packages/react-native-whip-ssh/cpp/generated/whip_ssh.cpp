@@ -511,6 +511,9 @@ RustBuffer uniffi_whip_ssh_fn_method_knownhoststore_view(
                                                       RustBuffer device_name);
 void uniffi_whip_ssh_fn_func_clear_agent_transcript_event_sink(
     RustCallStatus *uniffi_out_err);
+RustBuffer uniffi_whip_ssh_fn_func_read_cached_agent_transcript(
+    RustBuffer agent, RustBuffer session_id, RustBuffer cache_blob,
+    RustCallStatus *uniffi_out_err);
 void uniffi_whip_ssh_fn_func_set_agent_transcript_event_sink(
     /*handle*/ uint64_t sink, RustCallStatus *uniffi_out_err);
 /*handle*/ uint64_t uniffi_whip_ssh_fn_func_herdr_control_request(
@@ -793,6 +796,7 @@ void ffi_whip_ssh_rust_future_complete_void(
     /*handle*/ uint64_t handle, RustCallStatus *uniffi_out_err);
 uint16_t uniffi_whip_ssh_checksum_func_pair_host();
 uint16_t uniffi_whip_ssh_checksum_func_clear_agent_transcript_event_sink();
+uint16_t uniffi_whip_ssh_checksum_func_read_cached_agent_transcript();
 uint16_t uniffi_whip_ssh_checksum_func_set_agent_transcript_event_sink();
 uint16_t uniffi_whip_ssh_checksum_func_herdr_control_request();
 uint16_t uniffi_whip_ssh_checksum_func_clear_herdr_event_sink();
@@ -6760,6 +6764,18 @@ NativeWhipSsh::NativeWhipSsh(
                 ->cpp_uniffi_whip_ssh_fn_func_clear_agent_transcript_event_sink(
                     rt, thisVal, args, count);
           });
+  props["ubrn_uniffi_whip_ssh_fn_func_read_cached_agent_transcript"] =
+      jsi::Function::createFromHostFunction(
+          rt,
+          jsi::PropNameID::forAscii(
+              rt, "ubrn_uniffi_whip_ssh_fn_func_read_cached_agent_transcript"),
+          3,
+          [this](jsi::Runtime &rt, const jsi::Value &thisVal,
+                 const jsi::Value *args, size_t count) -> jsi::Value {
+            return this
+                ->cpp_uniffi_whip_ssh_fn_func_read_cached_agent_transcript(
+                    rt, thisVal, args, count);
+          });
   props["ubrn_uniffi_whip_ssh_fn_func_set_agent_transcript_event_sink"] =
       jsi::Function::createFromHostFunction(
           rt,
@@ -8069,6 +8085,18 @@ NativeWhipSsh::NativeWhipSsh(
             ->cpp_uniffi_whip_ssh_checksum_func_clear_agent_transcript_event_sink(
                 rt, thisVal, args, count);
       });
+  props["ubrn_uniffi_whip_ssh_checksum_func_read_cached_agent_transcript"] =
+      jsi::Function::createFromHostFunction(
+          rt,
+          jsi::PropNameID::forAscii(rt, "ubrn_uniffi_whip_ssh_checksum_func_"
+                                        "read_cached_agent_transcript"),
+          0,
+          [this](jsi::Runtime &rt, const jsi::Value &thisVal,
+                 const jsi::Value *args, size_t count) -> jsi::Value {
+            return this
+                ->cpp_uniffi_whip_ssh_checksum_func_read_cached_agent_transcript(
+                    rt, thisVal, args, count);
+          });
   props["ubrn_uniffi_whip_ssh_checksum_func_set_agent_transcript_event_sink"] =
       jsi::Function::createFromHostFunction(
           rt,
@@ -12728,6 +12756,22 @@ NativeWhipSsh::cpp_uniffi_whip_ssh_fn_func_clear_agent_transcript_event_sink(
   return jsi::Value::undefined();
 }
 jsi::Value
+NativeWhipSsh::cpp_uniffi_whip_ssh_fn_func_read_cached_agent_transcript(
+    jsi::Runtime &rt, const jsi::Value &thisVal, const jsi::Value *args,
+    size_t count) {
+  RustCallStatus status =
+      uniffi::whip_ssh::Bridging<RustCallStatus>::rustSuccess(rt);
+  auto value = uniffi_whip_ssh_fn_func_read_cached_agent_transcript(
+      uniffi::whip_ssh::Bridging<RustBuffer>::fromJs(rt, callInvoker, args[0]),
+      uniffi::whip_ssh::Bridging<RustBuffer>::fromJs(rt, callInvoker, args[1]),
+      uniffi::whip_ssh::Bridging<RustBuffer>::fromJs(rt, callInvoker, args[2]),
+      &status);
+  uniffi::whip_ssh::Bridging<RustCallStatus>::copyIntoJs(
+      rt, callInvoker, status, args[count - 1]);
+
+  return uniffi::whip_ssh::Bridging<RustBuffer>::toJs(rt, callInvoker, value);
+}
+jsi::Value
 NativeWhipSsh::cpp_uniffi_whip_ssh_fn_func_set_agent_transcript_event_sink(
     jsi::Runtime &rt, const jsi::Value &thisVal, const jsi::Value *args,
     size_t count) {
@@ -14147,6 +14191,14 @@ jsi::Value NativeWhipSsh::
         size_t count) {
   auto value =
       uniffi_whip_ssh_checksum_func_clear_agent_transcript_event_sink();
+
+  return uniffi_jsi::Bridging<uint16_t>::toJs(rt, callInvoker, value);
+}
+jsi::Value
+NativeWhipSsh::cpp_uniffi_whip_ssh_checksum_func_read_cached_agent_transcript(
+    jsi::Runtime &rt, const jsi::Value &thisVal, const jsi::Value *args,
+    size_t count) {
+  auto value = uniffi_whip_ssh_checksum_func_read_cached_agent_transcript();
 
   return uniffi_jsi::Bridging<uint16_t>::toJs(rt, callInvoker, value);
 }

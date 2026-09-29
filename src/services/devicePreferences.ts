@@ -378,7 +378,7 @@ function parseXtermCacheCapacity(value: unknown): number {
 }
 
 function isAppTab(value: unknown): value is AppTab {
-  return value === 'hosts' || value === 'herd' || value === 'terminal' || value === 'more';
+  return value === 'hosts' || value === 'herd' || value === 'chats' || value === 'terminal' || value === 'more';
 }
 
 function isAppearancePreference(value: unknown): value is AppearancePreference {

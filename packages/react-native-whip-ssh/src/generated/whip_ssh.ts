@@ -1243,6 +1243,45 @@ export async function prepareHerdrTerminalBridge(
   }
 }
 
+/**
+ * Restore a saved conversation without opening a host transport or a live
+ * session. The cache decoder still validates its agent and session identity.
+ */
+export function readCachedAgentTranscript(
+  agent: AgentTranscriptKind,
+  sessionId: string,
+  cacheBlob: ArrayBuffer,
+): AgentTranscriptState /*throws*/ {
+  return ((__rb: Uint8Array) => {
+    try {
+      return FfiConverterTypeAgentTranscriptState.lift(__rb);
+    } finally {
+      nativeModule().rustbuffer_free(__rb);
+    }
+  })(
+    uniffiCaller.rustCallWithError(
+      /*liftError:*/ FfiConverterTypeAgentSessionError.lift.bind(
+        FfiConverterTypeAgentSessionError,
+      ),
+      /*caller:*/ callStatus => {
+        return nativeModule().ubrn_uniffi_whip_ssh_fn_func_read_cached_agent_transcript(
+          FfiConverterTypeAgentTranscriptKind.lower(
+            agent,
+            nativeModule().rustbuffer_alloc,
+          ),
+          FfiConverterString.lower(sessionId, nativeModule().rustbuffer_alloc),
+          FfiConverterArrayBuffer.lower(
+            cacheBlob,
+            nativeModule().rustbuffer_alloc,
+          ),
+          callStatus,
+        );
+      },
+      /*liftString:*/ FfiConverterString.lift.bind(FfiConverterString),
+    ),
+  );
+}
+
 export async function removeSshSftpDirectory(
   key: string,
   path: string,
@@ -26352,6 +26391,14 @@ function uniffiEnsureInitialized() {
   ) {
     throw new UniffiInternalError.ApiChecksumMismatch(
       'uniffi_whip_ssh_checksum_func_prepare_herdr_terminal_bridge',
+    );
+  }
+  if (
+    nativeModule().ubrn_uniffi_whip_ssh_checksum_func_read_cached_agent_transcript() !==
+    48153
+  ) {
+    throw new UniffiInternalError.ApiChecksumMismatch(
+      'uniffi_whip_ssh_checksum_func_read_cached_agent_transcript',
     );
   }
   if (

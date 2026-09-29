@@ -1,5 +1,5 @@
 import { BlurView } from 'expo-blur';
-import { CircleEllipsis, Server, SquareTerminal, type LucideIcon } from 'lucide-react-native';
+import { CircleEllipsis, MessageCircle, Server, SquareTerminal, type LucideIcon } from 'lucide-react-native';
 import { type RefObject } from 'react';
 import { Platform, StyleSheet, View } from 'react-native';
 import { useTranslation } from 'react-i18next';
@@ -25,6 +25,7 @@ type NavigationItem = {
 const items: NavigationItem[] = [
   { tab: 'hosts', labelKey: 'nav.hosts', icon: Server },
   { tab: 'herd', labelKey: 'nav.herd', herdrMark: true },
+  { tab: 'chats', labelKey: 'nav.chats', icon: MessageCircle },
   { tab: 'terminal', labelKey: 'nav.terminal', icon: SquareTerminal },
   { tab: 'more', labelKey: 'nav.more', icon: CircleEllipsis },
 ];
@@ -33,7 +34,7 @@ export function BottomNavigation({ activeTab, blurTarget, onSelect }: Props) {
   const { colors, isDark } = useTheme();
   const { t } = useTranslation();
   const { bottom } = useSafeAreaInsets();
-  // Four Android BlurViews recaptured the full screen whenever its tab changed,
+  // Android BlurViews recaptured the full screen whenever its tab changed,
   // compounding the release transition stall. Keep native blur on iOS only.
   const renderNativeBlur = Platform.OS !== 'android';
   return (
@@ -44,10 +45,10 @@ export function BottomNavigation({ activeTab, blurTarget, onSelect }: Props) {
       {items.map(item => {
         const active = item.tab === activeTab;
         return (
-          <View className="h-[68px] w-[68px] items-center justify-center" key={item.tab}>
+          <View className="h-[60px] flex-1 items-center justify-center" key={item.tab}>
             <View
               pointerEvents="none"
-              className="absolute h-[68px] w-[68px] rounded-full"
+              className="absolute h-[60px] w-[60px] rounded-full"
               style={floatingBloomStyle(active, colors)}
             />
             {renderNativeBlur ? (
@@ -74,7 +75,7 @@ export function BottomNavigation({ activeTab, blurTarget, onSelect }: Props) {
               accessibilityLabel={t(item.labelKey)}
               accessibilityRole="tab"
               accessibilityState={{ selected: active }}
-              className="h-16 w-16 rounded-full bg-transparent p-0 dark:bg-transparent"
+              className="h-[60px] w-[60px] rounded-full bg-transparent p-0 dark:bg-transparent"
               size="content"
               variant="link"
               onPress={hapticPress(() => onSelect(item.tab))}>

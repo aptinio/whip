@@ -53,6 +53,7 @@ import {
   createHostRuntime as createHostRuntimeRust,
   getHostRuntime as getHostRuntimeRust,
   pairHost as pairHostRust,
+  readCachedAgentTranscript as readCachedAgentTranscriptRust,
   setAgentTranscriptEventSink,
   setHerdrTerminalEventSink,
   setHostRuntimeEventSink,
@@ -1533,6 +1534,19 @@ function nativeAgentTranscript(
     turns: value.turns.map(nativeAgentTurn),
     error: value.error,
   };
+}
+
+/** Decode a persisted conversation locally, with no HostRuntime or SSH call. */
+export function readCachedAgentTranscript(
+  kind: 'codex' | 'opencode',
+  sessionId: string,
+  blob: ArrayBuffer,
+): NativeAgentTranscriptState {
+  return nativeAgentTranscript(readCachedAgentTranscriptRust(
+    kind === 'codex' ? AgentTranscriptKind.Codex : AgentTranscriptKind.OpenCode,
+    sessionId,
+    blob,
+  ));
 }
 
 function nativeAgentChatBinding(

@@ -53,6 +53,7 @@ import { HostsScreen } from './HostsScreen';
 import { LiveSessionView } from './LiveSessionView';
 import { MoreScreen } from './MoreScreen';
 import { ScreenUpdates } from './ScreenUpdates';
+import { SavedChatsScreen } from './SavedChatsScreen';
 
 const NavigationBlurTarget = Platform.OS === 'android' ? View : BlurTargetView;
 
@@ -377,6 +378,19 @@ export function AppShell({
                         {renderHerd}
                       </ScreenUpdates>
                     </AgentStatusAnimationProvider>
+                  </View>
+                ) : null}
+
+                {navigation.mountedTabs.has('chats') ? (
+                  <View
+                    importantForAccessibility={navigation.state.tab === 'chats' ? 'auto' : 'no-hide-descendants'}
+                    pointerEvents={navigation.state.tab === 'chats' ? 'auto' : 'none'}
+                    style={navigation.state.tab === 'chats' ? styles.tabScreen : styles.hiddenTab}
+                  >
+                    <SavedChatsScreen
+                      visible={navigation.state.tab === 'chats'}
+                      hosts={hosts.hosts}
+                    />
                   </View>
                 ) : null}
 
