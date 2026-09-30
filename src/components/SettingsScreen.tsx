@@ -666,6 +666,7 @@ const languageOptions: { labelKey: string; value: LanguagePreference }[] = [
   { labelKey: 'settings.simplifiedChinese', value: 'zh-Hans' },
   { labelKey: 'settings.japanese', value: 'ja' },
   { labelKey: 'settings.spanish', value: 'es' },
+  { labelKey: 'settings.french', value: 'fr' },
 ];
 
 function LanguageRow({ value, onChange }: { value: LanguagePreference; onChange: (value: LanguagePreference) => void }) {

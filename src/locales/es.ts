@@ -437,6 +437,7 @@ export const es = {
   'settings.simplifiedChinese': '简体中文',
   'settings.japanese': '日本語',
   'settings.spanish': 'Español',
+  'settings.french': 'Français',
   'settings.herd': 'Herd',
   'settings.agentCommand': 'Comando del agente',
   'settings.agentCommandCopy': 'Comando utilizado por Iniciar agente en el espacio seleccionado.',

@@ -1,4 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import type { SupportedLanguage } from '../i18n';
 
 import {
   DEFAULT_DEVELOPER_MEMBERSHIP_STATE,
@@ -68,7 +69,7 @@ export interface TerminalPreferences {
 }
 
 export type AppearancePreference = 'system' | 'light' | 'dark';
-export type LanguagePreference = 'system' | 'en' | 'zh-Hant' | 'zh-Hans' | 'ja' | 'es';
+export type LanguagePreference = 'system' | SupportedLanguage;
 
 type StoredTerminalPreferences = Partial<TerminalPreferences> & {
   backgroundOpacity?: unknown;
@@ -390,5 +391,5 @@ function isAgentAlertLevel(value: unknown): value is AgentAlertLevel {
 }
 
 function isLanguagePreference(value: unknown): value is LanguagePreference {
-  return value === 'system' || value === 'en' || value === 'zh-Hant' || value === 'zh-Hans' || value === 'ja' || value === 'es';
+  return value === 'system' || value === 'en' || value === 'zh-Hant' || value === 'zh-Hans' || value === 'ja' || value === 'es' || value === 'fr';
 }

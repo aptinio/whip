@@ -437,6 +437,7 @@ export const zhHans = {
   'settings.simplifiedChinese': '简体中文',
   'settings.japanese': '日本語',
   'settings.spanish': 'Español',
+  'settings.french': 'Français',
   'settings.herd': 'Herd',
   'settings.agentCommand': '代理命令',
   'settings.agentCommandCopy': '启动代理在选定空间中使用的命令。',

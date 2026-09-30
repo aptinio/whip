@@ -448,6 +448,7 @@ export const en = {
   'settings.simplifiedChinese': '简体中文',
   'settings.japanese': '日本語',
   'settings.spanish': 'Español',
+  'settings.french': 'Français',
   'settings.herd': 'Herd',
   'settings.agentCommand': 'Agent command',
   'settings.agentCommandCopy': 'Command used by Start agent in the selected space.',

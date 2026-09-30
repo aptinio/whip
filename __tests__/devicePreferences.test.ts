@@ -238,7 +238,17 @@ test('loads a supported language preference and rejects invalid values', async (
   await expect(loadDevicePreferences()).resolves.toMatchObject({ language: 'es' });
 
   mockGetItem.mockResolvedValueOnce(JSON.stringify({ language: 'fr' }));
+  await expect(loadDevicePreferences()).resolves.toMatchObject({ language: 'fr' });
+
+  mockGetItem.mockResolvedValueOnce(JSON.stringify({ language: 'de' }));
   await expect(loadDevicePreferences()).resolves.toMatchObject({ language: 'system' });
+});
+
+test('preserves the French language choice across saving and loading', async () => {
+  await saveDevicePreferences({ ...defaultDevicePreferences, language: 'fr' });
+  const saved = mockSetItem.mock.calls.at(-1)![1];
+  mockGetItem.mockResolvedValueOnce(saved);
+  await expect(loadDevicePreferences()).resolves.toMatchObject({ language: 'fr' });
 });
 
 test('loads terminal behavior toggles only when explicitly enabled', async () => {

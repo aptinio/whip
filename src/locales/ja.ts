@@ -437,6 +437,7 @@ export const ja = {
   'settings.simplifiedChinese': '简体中文',
   'settings.japanese': '日本語',
   'settings.spanish': 'Español',
+  'settings.french': 'Français',
   'settings.herd': 'Herd',
   'settings.agentCommand': 'エージェント コマンド',
   'settings.agentCommandCopy': '選択したスペースでエージェントを開始することで使用されるコマンド。',

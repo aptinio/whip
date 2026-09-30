@@ -437,6 +437,7 @@ export const zhHant: Record<string, string> = {
   'settings.simplifiedChinese': '简体中文',
   'settings.japanese': '日本語',
   'settings.spanish': 'Español',
+  'settings.french': 'Français',
   'settings.herd': '群組',
   'settings.agentCommand': '代理程式指令',
   'settings.agentCommandCopy': '在所選空間中使用「啟動代理程式」時執行的指令。',
