@@ -474,6 +474,7 @@ impl RuntimeState {
         if self.epoch != epoch || self.explicit_disconnect {
             return false;
         }
+        self.agent_order = None;
         self.generation = self.generation.wrapping_add(1);
         self.connection = HostConnectionState::Connected;
         self.reconnect_attempt = 0;
@@ -496,6 +497,7 @@ impl RuntimeState {
         }) {
             return None;
         }
+        self.agent_order = None;
         self.epoch = self.epoch.wrapping_add(1);
         self.connection = HostConnectionState::Reconnecting;
         self.reconnect_running = true;
@@ -526,6 +528,7 @@ impl RuntimeState {
         self.reconnect_running = false;
         self.reconnect_attempt = 0;
         self.event = None;
+        self.agent_order = None;
         for terminal in self.terminals.values_mut() {
             terminal.operation_epoch = terminal.operation_epoch.wrapping_add(1);
             terminal.state = HostTerminalState::Closed;
